@@ -1,0 +1,158 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Shannon",
+  "projectDescription": "Fully autonomous AI pentester that finds and exploits actual vulnerabilities in web applications",
+  "theme": "aspen",
+  "primaryColor": "#a7a7a7",
+  "lightColor": "#303030",
+  "darkColor": "#eaeaea",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/overview",
+              "concepts/architecture",
+              "concepts/workflow-phases",
+              "concepts/agent-system",
+              "concepts/temporal-orchestration"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "cli/commands",
+              "cli/start",
+              "cli/workspaces",
+              "cli/logs",
+              "cli/query",
+              "cli/stop"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/authentication",
+              "configuration/yaml-config",
+              "configuration/retry-strategies",
+              "configuration/pipeline-settings"
+            ]
+          },
+          {
+            "group": "Advanced Usage",
+            "pages": [
+              "advanced/workspaces-resume",
+              "advanced/bedrock",
+              "advanced/vertex-ai",
+              "advanced/router-mode",
+              "advanced/local-apps",
+              "advanced/platform-specific"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/preparing-repositories",
+              "guides/interpreting-reports",
+              "guides/troubleshooting",
+              "guides/cost-optimization"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Architecture",
+            "pages": [
+              "development/architecture-overview",
+              "development/core-modules",
+              "development/temporal-workflow",
+              "development/mcp-integration",
+              "development/audit-system"
+            ]
+          },
+          {
+            "group": "Extending Shannon",
+            "pages": [
+              "development/adding-agents",
+              "development/modifying-prompts",
+              "development/design-patterns",
+              "development/code-style"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "development/key-files",
+              "development/agent-registry",
+              "development/error-handling",
+              "development/metrics-tracking"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Security & Compliance",
+        "groups": [
+          {
+            "group": "Security",
+            "pages": [
+              "security/overview",
+              "security/coverage",
+              "security/disclaimers",
+              "security/legal-ethical"
+            ]
+          },
+          {
+            "group": "Sample Reports",
+            "pages": [
+              "reports/overview",
+              "reports/juice-shop",
+              "reports/capital-api",
+              "reports/crapi",
+              "reports/benchmark-results"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Fully autonomous pentesting with zero intervention",
+    "Multi-phase AI agent workflow (reconnaissance, vulnerability analysis, exploitation, reporting)",
+    "Advanced 2FA/TOTP and SSO authentication support",
+    "Parallel vulnerability processing for faster results",
+    "Durable workflow orchestration with crash recovery via Temporal",
+    "Code-aware dynamic testing combining white-box and black-box analysis",
+    "Reproducible exploits with proof-of-concept code",
+    "Integration with security tools (Nmap, Subfinder, WhatWeb, Schemathesis)",
+    "Workspace management and resume capability",
+    "Multi-provider AI support (Anthropic, AWS Bedrock, Google Vertex AI)"
+  ],
+  "publicApiSurface": [
+    "./shannon start - Start pentest workflow",
+    "./shannon workspaces - List all workspaces",
+    "./shannon logs - View real-time worker logs",
+    "./shannon query - Query workflow progress",
+    "./shannon stop - Stop containers",
+    "AGENTS registry - Pre-recon, Recon, Injection, XSS, Auth, Authz, SSRF vulnerability and exploit agents",
+    "pentestPipelineWorkflow - Main Temporal workflow orchestrator",
+    "Config YAML - Authentication, retry strategies, pipeline settings",
+    "MCP servers - shannon-helper, playwright-agent1-5",
+    "Claude Agent SDK integration - AI execution engine"
+  ]
+}
