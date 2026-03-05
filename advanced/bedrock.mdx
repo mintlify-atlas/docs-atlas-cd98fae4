@@ -1,0 +1,77 @@
+---
+title: AWS Bedrock Integration
+description: Use Amazon Bedrock instead of Anthropic API keys
+---
+
+Shannon supports [Amazon Bedrock](https://aws.amazon.com/bedrock/) as an alternative to using Anthropic API keys directly.
+
+## Setup Instructions
+
+<Steps>
+  <Step title="Add AWS credentials to .env">
+    Create or edit your `.env` file with the following configuration:
+
+    ```bash
+    CLAUDE_CODE_USE_BEDROCK=1
+    AWS_REGION=us-east-1
+    AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
+
+    # Set models with Bedrock-specific IDs for your region
+    ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+    ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
+    ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
+    ```
+  </Step>
+
+  <Step title="Run Shannon">
+    Run Shannon as usual — it will automatically use Bedrock:
+
+    ```bash
+    ./shannon start URL=https://example.com REPO=repo-name
+    ```
+  </Step>
+</Steps>
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CLAUDE_CODE_USE_BEDROCK` | Yes | Set to `1` to enable Bedrock mode |
+| `AWS_REGION` | Yes | AWS region (e.g., `us-east-1`) |
+| `AWS_BEARER_TOKEN_BEDROCK` | Yes | Your AWS bearer token for Bedrock access |
+| `ANTHROPIC_SMALL_MODEL` | Yes | Bedrock model ID for small tasks (Haiku) |
+| `ANTHROPIC_MEDIUM_MODEL` | Yes | Bedrock model ID for medium tasks (Sonnet) |
+| `ANTHROPIC_LARGE_MODEL` | Yes | Bedrock model ID for large tasks (Opus) |
+
+## Model Tiers
+
+Shannon uses three model tiers optimized for different tasks:
+
+- **Small** (`claude-haiku-4-5-20251001`) — Used for summarization and lightweight tasks
+- **Medium** (`claude-sonnet-4-6`) — Used for security analysis and vulnerability detection
+- **Large** (`claude-opus-4-6`) — Used for deep reasoning and complex exploitation
+
+## Region-Specific Model IDs
+
+Make sure to use the correct Bedrock model IDs for your AWS region. Model IDs vary by region and may include prefixes like `us.anthropic.` for US regions.
+
+Refer to the [AWS Bedrock Model IDs documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html) for the correct identifiers in your region.
+
+## Example Configuration
+
+Here's a complete `.env` example for AWS Bedrock in the `us-east-1` region:
+
+```bash
+# AWS Bedrock Configuration
+CLAUDE_CODE_USE_BEDROCK=1
+AWS_REGION=us-east-1
+AWS_BEARER_TOKEN_BEDROCK=your-bearer-token-here
+
+# Model Configuration
+ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
+ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
+
+# Optional: Increase output tokens for better results
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+```

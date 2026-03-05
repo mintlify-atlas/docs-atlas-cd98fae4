@@ -1,0 +1,433 @@
+---
+title: 'Troubleshooting'
+description: 'Solutions to common issues when running Shannon'
+---
+
+This guide covers common issues you may encounter when running Shannon and how to resolve them.
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Repository not found">
+    **Error message:**
+    ```
+    Error: Repository 'my-repo' not found in ./repos/
+    ```
+    
+    **Cause:** The `REPO` parameter must be a folder name inside `./repos/`, not an absolute path.
+    
+    **Solution:**
+    
+    Clone or symlink your repository into the `./repos/` directory first:
+    
+    ```bash
+    # Option 1: Clone into ./repos/
+    git clone https://github.com/your-org/your-repo.git ./repos/my-repo
+    
+    # Option 2: Create a symlink
+    ln -s /path/to/existing/repo ./repos/my-repo
+    
+    # Then run Shannon with the folder name
+    ./shannon start URL=https://app.com REPO=my-repo
+    ```
+    
+    **Verification:**
+    ```bash
+    ls ./repos/
+    # Should show: my-repo/
+    ```
+  </Accordion>
+  
+  <Accordion title="Temporal not ready">
+    **Error message:**
+    ```
+    Error: Failed to connect to Temporal server
+    Waiting for Temporal to be ready...
+    ```
+    
+    **Cause:** The Temporal service hasn't fully started yet, or there's a Docker networking issue.
+    
+    **Solution 1: Wait for health check**
+    
+    Shannon's startup script waits up to 60 seconds for Temporal to be ready. If it's taking longer than usual:
+    
+    ```bash
+    # Check Temporal container status
+    docker compose ps temporal
+    
+    # View Temporal logs
+    docker compose logs temporal
+    ```
+    
+    Look for the message: `Temporal server started on localhost:7233`
+    
+    **Solution 2: Restart Docker services**
+    
+    ```bash
+    ./shannon stop
+    ./shannon start URL=https://app.com REPO=my-repo
+    ```
+    
+    **Solution 3: Full cleanup**
+    
+    If the issue persists, perform a clean restart:
+    
+    ```bash
+    ./shannon stop CLEAN=true
+    ./shannon start URL=https://app.com REPO=my-repo
+    ```
+  </Accordion>
+  
+  <Accordion title="Worker not processing workflows">
+    **Symptoms:**
+    - Workflow starts but never progresses
+    - No logs appearing when running `./shannon logs`
+    - Temporal Web UI shows workflow as "Running" but no activities complete
+    
+    **Diagnosis:**
+    
+    ```bash
+    # Check worker container status
+    docker compose ps worker
+    
+    # View worker logs for errors
+    docker compose logs worker
+    ```
+    
+    **Common causes and solutions:**
+    
+    1. **Worker crashed during startup**
+       ```bash
+       # Restart the worker
+       docker compose restart worker
+       ```
+    
+    2. **Environment variable issues**
+       ```bash
+       # Check that API keys are set correctly
+       docker compose exec worker env | grep ANTHROPIC
+       
+       # If keys are missing, verify your .env file
+       cat .env
+       ```
+    
+    3. **Docker resource limits**
+       
+       Ensure Docker has sufficient resources allocated (at least 4GB RAM, 2 CPUs). Check Docker Desktop settings if applicable.
+    
+    4. **Task queue mismatch**
+       
+       This is rare but can happen after forced shutdowns:
+       ```bash
+       ./shannon stop CLEAN=true
+       ./shannon start URL=https://app.com REPO=my-repo
+       ```
+  </Accordion>
+  
+  <Accordion title="Local applications unreachable">
+    **Error message:**
+    ```
+    Error: Failed to connect to http://localhost:3000
+    Connection refused
+    ```
+    
+    **Cause:** Docker containers cannot reach `localhost` on your host machine.
+    
+    **Solution:**
+    
+    Use `host.docker.internal` instead of `localhost` in your URL:
+    
+    ```bash
+    # Incorrect
+    ./shannon start URL=http://localhost:3000 REPO=my-repo
+    
+    # Correct
+    ./shannon start URL=http://host.docker.internal:3000 REPO=my-repo
+    ```
+    
+    **Platform-specific notes:**
+    
+    - **macOS/Windows with Docker Desktop:** `host.docker.internal` works out of the box
+    - **Linux with native Docker:** You may need to add `--add-host=host.docker.internal:host-gateway` to docker run commands. Shannon handles this automatically, but if you experience issues:
+      ```bash
+      # Verify your application is listening on 0.0.0.0, not 127.0.0.1
+      netstat -tlnp | grep 3000
+      ```
+    
+    **Alternative: Use host networking mode (Linux only)**
+    
+    Edit `docker-compose.yml` to add `network_mode: host` to the worker service (this is not recommended for production use).
+  </Accordion>
+  
+  <Accordion title="Missing security tools (nmap, subfinder, whatweb)">
+    **Error message:**
+    ```
+    Warning: External reconnaissance tool 'nmap' not found
+    Continuing with limited reconnaissance capabilities
+    ```
+    
+    **Cause:** The pre-recon phase uses external security tools that may not be available in all environments.
+    
+    **Solution 1: Use PIPELINE_TESTING mode**
+    
+    This mode gracefully skips external tools:
+    
+    ```bash
+    ./shannon start URL=https://app.com REPO=my-repo PIPELINE_TESTING=true
+    ```
+    
+    Shannon will perform reconnaissance using only browser-based and API techniques.
+    
+    **Solution 2: Install tools manually (Docker rebuild required)**
+    
+    The Shannon Docker image includes these tools by default. If they're missing, rebuild:
+    
+    ```bash
+    ./shannon start URL=https://app.com REPO=my-repo REBUILD=true
+    ```
+    
+    **Impact of missing tools:**
+    
+    - **nmap**: Port scanning and service detection will be skipped
+    - **subfinder**: Subdomain enumeration will be limited
+    - **whatweb**: Technology stack detection will rely only on browser-based fingerprinting
+    
+    Shannon can still perform effective pentesting without these tools, but the reconnaissance phase will be less comprehensive.
+  </Accordion>
+  
+  <Accordion title="Container permission errors">
+    **Error message (Linux):**
+    ```
+    permission denied while trying to connect to the Docker daemon socket
+    ```
+    
+    **Cause:** Your user doesn't have permission to access the Docker socket.
+    
+    **Solution 1: Use sudo**
+    
+    ```bash
+    sudo ./shannon start URL=https://app.com REPO=my-repo
+    ```
+    
+    **Solution 2: Add user to docker group (permanent fix)**
+    
+    ```bash
+    # Add your user to the docker group
+    sudo usermod -aG docker $USER
+    
+    # Log out and log back in for changes to take effect
+    # Or use: newgrp docker
+    
+    # Verify
+    docker ps
+    ```
+    
+    **File permission errors in output directory:**
+    
+    ```
+    Error: EACCES: permission denied, open './audit-logs/session.json'
+    ```
+    
+    If audit log files are created with root ownership:
+    
+    ```bash
+    # Fix ownership of existing files
+    sudo chown -R $USER:$USER ./audit-logs/
+    ```
+  </Accordion>
+  
+  <Accordion title="Windows Antivirus false positives">
+    **Symptom:** Windows Defender or other antivirus software quarantines files in `audit-logs/` or `deliverables/`.
+    
+    **Cause:** Exploit code in Shannon's reports (proof-of-concept scripts) triggers heuristic malware detection.
+    
+    **Solution 1: Add exclusion**
+    
+    Add an exclusion for the Shannon directory in Windows Defender:
+    
+    1. Open **Windows Security** → **Virus & threat protection**
+    2. Under **Virus & threat protection settings**, click **Manage settings**
+    3. Scroll to **Exclusions** and click **Add or remove exclusions**
+    4. Add the Shannon installation directory (e.g., `C:\Users\YourName\shannon`)
+    
+    **Solution 2: Use WSL2 (Recommended)**
+    
+    Run Shannon inside WSL2 to isolate it from Windows Defender:
+    
+    ```powershell
+    # Install WSL2 if not already installed
+    wsl --install
+    wsl --set-default-version 2
+    ```
+    
+    Then clone and run Shannon inside WSL. See [Platform-Specific Instructions](/installation#windows) for details.
+    
+    **Solution 3: Temporarily disable real-time protection**
+    
+    Only during Shannon execution (not recommended for general use):
+    
+    1. Open **Windows Security** → **Virus & threat protection**
+    2. Under **Virus & threat protection settings**, toggle **Real-time protection** to **Off**
+    3. Run Shannon
+    4. Re-enable real-time protection immediately after
+  </Accordion>
+</AccordionGroup>
+
+## Rate Limiting and API Issues
+
+<AccordionGroup>
+  <Accordion title="Anthropic API rate limit exceeded">
+    **Error message:**
+    ```
+    Error: Rate limit exceeded (429)
+    Retrying with exponential backoff...
+    ```
+    
+    **Cause:** Anthropic API has usage limits based on your plan tier.
+    
+    **Solution for Subscription Plans:**
+    
+    Anthropic subscription plans reset on a **rolling 5-hour window**. Configure Shannon to handle this:
+    
+    Create or edit your config file (`./configs/my-config.yaml`):
+    
+    ```yaml
+    pipeline:
+      retry_preset: subscription          # Max 6h backoff, 100 retries
+      max_concurrent_pipelines: 2         # Run 2 of 5 pipelines at a time
+    ```
+    
+    Then run with the config:
+    
+    ```bash
+    ./shannon start URL=https://app.com REPO=my-repo CONFIG=./configs/my-config.yaml
+    ```
+    
+    **Understanding the settings:**
+    
+    - `retry_preset: subscription`: Extends maximum backoff to 6 hours (longer than the 5-hour reset window)
+    - `max_concurrent_pipelines: 2`: Reduces burst API usage by running 2 vulnerability pipelines at a time instead of all 5
+    
+    **Solution for Pay-Per-Use Plans:**
+    
+    Check your account limits in the [Anthropic Console](https://console.anthropic.com). You may need to:
+    
+    - Increase your rate limit by contacting support
+    - Wait for the rate limit window to reset
+    - Reduce `max_concurrent_pipelines` to 1 for minimal API usage
+  </Accordion>
+  
+  <Accordion title="Authentication errors with Claude Code OAuth">
+    **Error message:**
+    ```
+    Error: Failed to authenticate with Claude Code
+    Invalid or expired OAuth token
+    ```
+    
+    **Solution:**
+    
+    Refresh your OAuth token or switch to Anthropic API key:
+    
+    ```bash
+    # Option 1: Use Anthropic API key instead (recommended)
+    export ANTHROPIC_API_KEY="your-api-key"
+    unset CLAUDE_CODE_OAUTH_TOKEN
+    
+    # Option 2: Regenerate OAuth token
+    # Visit https://console.anthropic.com and generate a new token
+    export CLAUDE_CODE_OAUTH_TOKEN="new-token"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Workflow and State Issues
+
+<AccordionGroup>
+  <Accordion title="Workflow stuck or hanging">
+    **Symptoms:**
+    - Workflow shows as "Running" but hasn't progressed in 20+ minutes
+    - Agent logs show the same action repeating
+    
+    **Diagnosis:**
+    
+    ```bash
+    # Check current workflow status
+    ./shannon query ID=shannon-1234567890
+    
+    # View live worker logs
+    ./shannon logs
+    
+    # Check Temporal Web UI for detailed state
+    open http://localhost:8233
+    ```
+    
+    **Solution:**
+    
+    1. **Allow more time**: Some phases (especially exploitation) can take 30-40 minutes
+    2. **Check for infinite loops**: Review `./shannon logs` for repeated actions
+    3. **Terminate and resume**:
+       ```bash
+       # Stop the workflow (Ctrl+C if running in foreground)
+       ./shannon stop
+       
+       # Resume from the same workspace
+       ./shannon start URL=https://app.com REPO=my-repo WORKSPACE=<workspace-name>
+       ```
+  </Accordion>
+  
+  <Accordion title="Resume fails with 'workspace URL mismatch'">
+    **Error message:**
+    ```
+    Error: Workspace URL mismatch
+    Original: https://app.com
+    Provided: https://different-app.com
+    ```
+    
+    **Cause:** Shannon prevents cross-target contamination by validating that resumed workspaces match the original target URL.
+    
+    **Solution:**
+    
+    Ensure you're using the exact same URL:
+    
+    ```bash
+    # Check the original URL in session.json
+    cat audit-logs/<workspace-name>/session.json | grep targetUrl
+    
+    # Resume with matching URL
+    ./shannon start URL=<original-url> REPO=my-repo WORKSPACE=<workspace-name>
+    ```
+    
+    If you need to test a different URL, create a new workspace:
+    
+    ```bash
+    ./shannon start URL=https://new-app.com REPO=my-repo WORKSPACE=new-workspace
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Getting Additional Help
+
+If you're still experiencing issues:
+
+1. **Check the full error logs:**
+   ```bash
+   docker compose logs --tail=100
+   ./shannon logs
+   ```
+
+2. **Reset to a clean state:**
+   ```bash
+   ./shannon stop CLEAN=true
+   ./shannon start URL=https://app.com REPO=my-repo
+   ```
+
+3. **Report the issue:**
+   - 🐛 [GitHub Issues](https://github.com/KeygraphHQ/shannon/issues) for bug reports
+   - 💬 [Discord](https://discord.gg/KAqzSHHpRt) for community support
+   - 📧 [shannon@keygraph.io](mailto:shannon@keygraph.io) for direct support
+
+When reporting issues, include:
+- Shannon version (`cat VERSION` in the Shannon directory)
+- Operating system and Docker version
+- Full error message and relevant logs
+- Steps to reproduce the issue

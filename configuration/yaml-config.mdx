@@ -1,0 +1,322 @@
+---
+title: YAML Configuration Reference
+description: Complete reference for all Shannon configuration options
+---
+
+This page provides a complete reference for all configuration options available in Shannon's YAML configuration files.
+
+## Configuration File Structure
+
+```yaml
+authentication:
+  # Authentication configuration (optional)
+  login_type: form | sso | api | basic
+  login_url: "https://example.com/login"
+  credentials:
+    username: "string"
+    password: "string"
+    totp_secret: "string"  # Optional
+  login_flow:
+    - "instruction 1"
+    - "instruction 2"
+  success_condition:
+    type: url_contains | url_equals_exactly | element_present | text_contains
+    value: "string"
+
+rules:
+  # Testing rules (optional)
+  avoid:
+    - description: "string"
+      type: path | subdomain | domain | method | header | parameter
+      url_path: "string"
+  focus:
+    - description: "string"
+      type: path | subdomain | domain | method | header | parameter
+      url_path: "string"
+
+pipeline:
+  # Pipeline settings (optional)
+  retry_preset: default | subscription
+  max_concurrent_pipelines: 1-5
+```
+
+## Authentication Section
+
+Configures authentication for testing protected applications. See [Authentication Configuration](/configuration/authentication) for detailed examples.
+
+### authentication.login_type
+
+<ParamField path="login_type" type="enum" required>
+  Type of authentication mechanism:
+  - `form` - Traditional form-based login
+  - `sso` - Single Sign-On (e.g., "Sign in with Google")
+  - `api` - API key or token authentication
+  - `basic` - HTTP Basic Authentication
+</ParamField>
+
+### authentication.login_url
+
+<ParamField path="login_url" type="string" required>
+  URL for the login page or endpoint. Must be a valid URI.
+</ParamField>
+
+### authentication.credentials
+
+<ParamField path="credentials" type="object" required>
+  Login credentials
+</ParamField>
+
+<ParamField path="credentials.username" type="string" required>
+  Username, email, or API key (1-255 characters)
+</ParamField>
+
+<ParamField path="credentials.password" type="string" required>
+  Password or API secret (1-255 characters)
+</ParamField>
+
+<ParamField path="credentials.totp_secret" type="string">
+  Base32-encoded TOTP secret for two-factor authentication. Pattern: `^[A-Za-z2-7]+=*$` (case insensitive)
+</ParamField>
+
+### authentication.login_flow
+
+<ParamField path="login_flow" type="array[string]">
+  Step-by-step natural language instructions for the login process:
+  - Minimum: 1 step
+  - Maximum: 20 steps
+  - Each step: 1-500 characters
+  - Use variables: `$username`, `$password`, `$totp`
+</ParamField>
+
+### authentication.success_condition
+
+<ParamField path="success_condition" type="object" required>
+  Condition indicating successful authentication
+</ParamField>
+
+<ParamField path="success_condition.type" type="enum" required>
+  - `url_contains` - URL contains the specified value
+  - `url_equals_exactly` - URL exactly matches the value
+  - `element_present` - Page contains a specific element
+  - `text_contains` - Page content contains the text
+</ParamField>
+
+<ParamField path="success_condition.value" type="string" required>
+  Value to match against (1-500 characters)
+</ParamField>
+
+## Rules Section
+
+Defines testing boundaries and priorities. Both `avoid` and `focus` are optional.
+
+### rules.avoid
+
+<ParamField path="avoid" type="array[Rule]">
+  Rules defining areas to avoid during testing (maximum 50 rules)
+</ParamField>
+
+### rules.focus
+
+<ParamField path="focus" type="array[Rule]">
+  Rules defining areas to prioritize during testing (maximum 50 rules)
+</ParamField>
+
+### Rule Object
+
+Each rule in `avoid` or `focus` has the following structure:
+
+<ParamField path="description" type="string" required>
+  Human-readable description of the rule (1-200 characters)
+</ParamField>
+
+<ParamField path="type" type="enum" required>
+  Type of rule:
+  - `path` - Match URL path (e.g., `/api/users`)
+  - `subdomain` - Match subdomain (e.g., `admin`)
+  - `domain` - Match full domain (e.g., `example.com`)
+  - `method` - Match HTTP method (e.g., `DELETE`)
+  - `header` - Match HTTP header name
+  - `parameter` - Match query/body parameter name
+</ParamField>
+
+<ParamField path="url_path" type="string" required>
+  Pattern or value to match (1-1000 characters)
+  
+  Requirements vary by type:
+  - `path`: Must start with `/`
+  - `subdomain`: No `/` characters allowed
+  - `domain`: Must contain `.` and no `/` characters
+  - `method`: Must be GET, POST, PUT, DELETE, PATCH, HEAD, or OPTIONS
+  - `header`: Alphanumeric, hyphens, underscores only
+  - `parameter`: Alphanumeric, hyphens, underscores only
+</ParamField>
+
+### Rules Examples
+
+**Avoid Examples:**
+
+```yaml
+rules:
+  avoid:
+    # Skip logout functionality
+    - description: "Do not test logout endpoints"
+      type: path
+      url_path: "/logout"
+    
+    # Skip DELETE operations on user API
+    - description: "No DELETE operations on user API"
+      type: path
+      url_path: "/api/v1/users/*"
+    
+    # Avoid marketing subdomain
+    - description: "Do not test the marketing site subdomain"
+      type: subdomain
+      url_path: "www"
+    
+    # Skip DELETE method globally
+    - description: "Avoid all DELETE requests"
+      type: method
+      url_path: "DELETE"
+```
+
+**Focus Examples:**
+
+```yaml
+rules:
+  focus:
+    # Prioritize admin panel
+    - description: "Focus on admin panel subdomain"
+      type: subdomain
+      url_path: "admin"
+    
+    # Prioritize API v2
+    - description: "Focus on API v2 endpoints"
+      type: path
+      url_path: "/api/v2"
+    
+    # Prioritize user profile updates
+    - description: "Focus on user profile updates"
+      type: path
+      url_path: "/api/v2/user-profile"
+```
+
+### Rule Validation
+
+Shannon validates rules to prevent:
+
+- **Duplicates**: Same type+url_path combination in avoid or focus
+- **Conflicts**: Same type+url_path in both avoid and focus
+- **Security violations**: Dangerous patterns like path traversal
+
+## Pipeline Section
+
+Controls retry behavior and concurrency. See [Retry Strategies](/configuration/retry-strategies) and [Pipeline Settings](/configuration/pipeline-settings) for details.
+
+### pipeline.retry_preset
+
+<ParamField path="retry_preset" type="enum" default="default">
+  Retry behavior preset:
+  - `default` - Standard retry (30-minute max backoff)
+  - `subscription` - Extended retry for Anthropic subscription plans (6-hour max backoff, 100 retries)
+</ParamField>
+
+### pipeline.max_concurrent_pipelines
+
+<ParamField path="max_concurrent_pipelines" type="number" default="5">
+  Maximum concurrent vulnerability analysis pipelines (1-5). Lower values reduce API usage spikes but increase wall-clock time.
+</ParamField>
+
+## Complete Example
+
+Here's a complete configuration file demonstrating all available options:
+
+```yaml
+authentication:
+  login_type: form
+  login_url: "https://example.com/login"
+  credentials:
+    username: "testuser"
+    password: "testpassword"
+    totp_secret: "JBSWY3DPEHPK3PXP"
+  
+  login_flow:
+    - "Type $username into the email field"
+    - "Type $password into the password field"
+    - "Click the 'Sign In' button"
+    - "Enter $totp in the verification code field"
+    - "Click 'Verify'"
+  
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+
+rules:
+  avoid:
+    - description: "Do not test the marketing site subdomain"
+      type: subdomain
+      url_path: "www"
+    
+    - description: "Skip logout functionality"
+      type: path
+      url_path: "/logout"
+    
+    - description: "No DELETE operations on user API"
+      type: path
+      url_path: "/api/v1/users/*"
+  
+  focus:
+    - description: "Prioritize beta admin panel subdomain"
+      type: subdomain
+      url_path: "beta-admin"
+
+    - description: "Focus on user profile updates"
+      type: path
+      url_path: "/api/v2/user-profile"
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 2
+```
+
+## Schema Validation Details
+
+Configuration files are validated against `configs/config-schema.json` (JSON Schema Draft 07). The schema enforces:
+
+- **Type safety**: All fields must have correct types
+- **Required fields**: Missing required fields are rejected
+- **Value constraints**: Min/max lengths, patterns, enums
+- **Security rules**: Dangerous patterns are blocked
+- **Logical consistency**: Conflicts and duplicates are detected
+
+### Common Validation Errors
+
+**Missing required field:**
+```
+Missing required field: "credentials" at /authentication
+```
+
+**Invalid enum value:**
+```
+Invalid value at /authentication/login_type: must be one of ["form", "sso", "api", "basic"]
+```
+
+**Type mismatch:**
+```
+Invalid type at /pipeline/max_concurrent_pipelines: expected string
+```
+
+**Security violation:**
+```
+authentication.login_url contains potentially dangerous pattern: \.\./
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/configuration/authentication">
+    Detailed authentication examples
+  </Card>
+  <Card title="Retry Strategies" icon="rotate" href="/configuration/retry-strategies">
+    Configure retry behavior for rate limits
+  </Card>
+</CardGroup>

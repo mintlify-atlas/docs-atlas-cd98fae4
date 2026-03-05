@@ -1,0 +1,535 @@
+---
+title: Installation
+description: Complete installation guide for Shannon on macOS, Linux, and Windows
+---
+
+This guide covers everything you need to install and configure Shannon for autonomous penetration testing.
+
+## System Requirements
+
+<CardGroup cols={2}>
+  <Card title="Docker" icon="docker">
+    Container runtime for Shannon's isolated environment
+  </Card>
+  <Card title="AI Provider Credentials" icon="key">
+    Anthropic API key, AWS Bedrock, or Google Vertex AI
+  </Card>
+  <Card title="Disk Space" icon="hard-drive">
+    Minimum 5GB for containers and audit logs
+  </Card>
+  <Card title="Network Access" icon="wifi">
+    Internet connection for AI API calls and security tools
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+### Docker Installation
+
+Shannon requires Docker to run its containers. Install Docker for your platform:
+
+<Tabs>
+  <Tab title="macOS">
+    Download and install [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install/).
+
+    ```bash
+    # Verify installation
+    docker --version
+    docker compose version
+    ```
+
+    <Note>
+    Shannon works out of the box on macOS with Docker Desktop installed. No additional configuration needed.
+    </Note>
+  </Tab>
+
+  <Tab title="Linux">
+    Install Docker Engine using your distribution's package manager:
+
+    ```bash
+    # Ubuntu/Debian
+    sudo apt-get update
+    sudo apt-get install docker.io docker-compose-plugin
+
+    # Fedora/RHEL
+    sudo dnf install docker docker-compose-plugin
+
+    # Verify installation
+    docker --version
+    docker compose version
+    ```
+
+    <Warning>
+    You may need to run Shannon commands with `sudo` depending on your Docker setup. To avoid this, add your user to the `docker` group:
+
+    ```bash
+    sudo usermod -aG docker $USER
+    newgrp docker
+    ```
+    </Warning>
+  </Tab>
+
+  <Tab title="Windows">
+    **Option 1: WSL2 (Recommended)**
+
+    1. Install WSL2:
+    ```powershell
+    # Run in PowerShell as Administrator
+    wsl --install
+    wsl --set-default-version 2
+
+    # Install Ubuntu 24.04 (recommended)
+    wsl --list --online
+    wsl --install Ubuntu-24.04
+    ```
+
+    2. Install Docker Desktop for Windows with WSL2 backend:
+       - Download [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/)
+       - Enable **Use the WSL 2 based engine** under Settings > General
+
+    3. Open WSL terminal:
+    ```powershell
+    wsl -d Ubuntu-24.04
+    ```
+
+    <Tip>
+    To access the Temporal Web UI from Windows, find your WSL IP address with `ip addr` inside WSL, then navigate to `http://<wsl-ip>:8233` in your browser.
+    </Tip>
+
+    **Option 2: Git Bash (Native Windows)**
+
+    1. Install [Git for Windows](https://git-scm.com/install/windows)
+    2. Install [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/)
+    3. Run Shannon from Git Bash terminal
+
+    <Warning>
+    Windows Defender may flag exploit code in reports as false positives. Add an exclusion for the Shannon directory in Windows Security settings.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### AI Provider Credentials
+
+Shannon requires access to Claude models. Choose one of the following options:
+
+<Tabs>
+  <Tab title="Anthropic (Default)">
+    Get your API key from the [Anthropic Console](https://console.anthropic.com):
+
+    1. Create an Anthropic account
+    2. Navigate to API Keys section
+    3. Generate a new API key
+    4. Copy the key (starts with `sk-ant-api03-...`)
+
+    <Note>
+    Anthropic offers pay-as-you-go pricing. A typical Shannon pentest costs approximately **$50 USD** using Claude 4.5 Sonnet.
+    </Note>
+  </Tab>
+
+  <Tab title="AWS Bedrock">
+    Route through Amazon Bedrock for enterprise billing and compliance:
+
+    1. Enable Claude models in AWS Bedrock console
+    2. Create a Bedrock API key ([AWS Guide](https://aws.amazon.com/blogs/machine-learning/accelerate-ai-development-with-amazon-bedrock-api-keys/))
+    3. Configure environment variables (see Configuration section below)
+
+    Required: `AWS_REGION`, `AWS_BEARER_TOKEN_BEDROCK`, and Bedrock-specific model IDs.
+  </Tab>
+
+  <Tab title="Google Vertex AI">
+    Route through Google Cloud Vertex AI:
+
+    1. Create a GCP service account with `roles/aiplatform.user`
+    2. Download JSON key file from [GCP Console](https://console.cloud.google.com/iam-admin/serviceaccounts)
+    3. Place key file in `./credentials/` directory
+    4. Configure environment variables (see Configuration section below)
+
+    Required: `CLOUD_ML_REGION`, `ANTHROPIC_VERTEX_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS`.
+  </Tab>
+
+  <Tab title="Router Mode (Experimental)">
+    Use alternative providers like OpenAI or Google Gemini via OpenRouter:
+
+    ```bash
+    # OpenAI
+    export OPENAI_API_KEY=sk-...
+    export ROUTER_DEFAULT=openai,gpt-5.2
+
+    # OpenRouter (for Gemini)
+    export OPENROUTER_API_KEY=sk-or-...
+    export ROUTER_DEFAULT=openrouter,google/gemini-3-flash-preview
+    ```
+
+    <Warning>
+    Router mode is experimental and unsupported. Shannon is optimized for Anthropic Claude models. Alternative providers may produce inconsistent results.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone Shannon">
+    Clone the Shannon repository from GitHub:
+
+    ```bash
+    git clone https://github.com/KeygraphHQ/shannon.git
+    cd shannon
+    ```
+  </Step>
+
+  <Step title="Configure Credentials">
+    Create a `.env` file with your API credentials:
+
+    <Tabs>
+      <Tab title="Anthropic API">
+        ```bash
+        cp .env.example .env
+        ```
+
+        Edit `.env` and add your credentials:
+
+        ```bash .env
+        # Anthropic API Key (recommended)
+        ANTHROPIC_API_KEY=your-api-key-here
+
+        # Recommended for larger tool outputs
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+        ```
+      </Tab>
+
+      <Tab title="AWS Bedrock">
+        ```bash .env
+        # Enable Bedrock mode
+        CLAUDE_CODE_USE_BEDROCK=1
+        AWS_REGION=us-east-1
+        AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
+
+        # Bedrock-specific model IDs for your region
+        ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+        ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
+        ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
+
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+        ```
+      </Tab>
+
+      <Tab title="Google Vertex AI">
+        ```bash .env
+        # Enable Vertex AI mode
+        CLAUDE_CODE_USE_VERTEX=1
+        CLOUD_ML_REGION=us-east5
+        ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
+        GOOGLE_APPLICATION_CREDENTIALS=./credentials/gcp-sa-key.json
+
+        # Vertex AI model IDs
+        ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
+        ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
+        ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+        ```
+
+        Place your GCP service account key:
+
+        ```bash
+        mkdir -p ./credentials
+        cp /path/to/your-sa-key.json ./credentials/gcp-sa-key.json
+        ```
+      </Tab>
+    </Tabs>
+
+    <Info>
+    Shannon uses three model tiers:
+    - **Small** (Haiku) — Summarization and lightweight tasks
+    - **Medium** (Sonnet) — Security analysis and vulnerability detection
+    - **Large** (Opus) — Deep reasoning and complex exploit chains
+    </Info>
+  </Step>
+
+  <Step title="Prepare Target Repository">
+    Shannon expects repositories under the `./repos/` directory:
+
+    ```bash
+    # Clone your target application
+    git clone https://github.com/your-org/your-app.git ./repos/your-app
+    ```
+
+    <Tabs>
+      <Tab title="Single Repository">
+        ```bash
+        # Standard single-repo application
+        git clone https://github.com/your-org/app.git ./repos/app
+        ```
+      </Tab>
+
+      <Tab title="Monorepo">
+        ```bash
+        # Application with multiple services in one repo
+        git clone https://github.com/your-org/monorepo.git ./repos/monorepo
+        ```
+      </Tab>
+
+      <Tab title="Multi-Repository">
+        ```bash
+        # Separate frontend, backend, and API repos
+        mkdir ./repos/your-app
+        cd ./repos/your-app
+        git clone https://github.com/your-org/frontend.git
+        git clone https://github.com/your-org/backend.git
+        git clone https://github.com/your-org/api.git
+        ```
+      </Tab>
+
+      <Tab title="Symlink">
+        ```bash
+        # Link to an existing local repository
+        ln -s /path/to/existing/repo ./repos/my-app
+        ```
+      </Tab>
+    </Tabs>
+
+    <Warning>
+    **White-box testing only.** Shannon requires access to your application's source code. It analyzes code to intelligently guide attack strategies.
+    </Warning>
+  </Step>
+
+  <Step title="Verify Installation">
+    Test that Shannon is properly configured:
+
+    ```bash
+    # Start Shannon and check for errors
+    ./shannon start URL=https://example.com REPO=your-app
+    ```
+
+    You should see:
+
+    ```
+    Starting Shannon containers...
+    Waiting for Temporal to be ready...
+    Temporal is ready!
+    
+    🚀 Pentest workflow started
+    Workflow ID: example.com_shannon-1234567890
+    ```
+
+    <Note>
+    The first run downloads Docker images (approximately 2GB). Subsequent runs start almost instantly.
+    </Note>
+
+    Stop the test workflow:
+
+    ```bash
+    ./shannon stop
+    ```
+  </Step>
+</Steps>
+
+## Configuration Files
+
+### Environment Variables Reference
+
+Shannon supports multiple configuration options via `.env`:
+
+```bash .env
+# === Core Configuration ===
+ANTHROPIC_API_KEY=your-api-key-here
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+
+# === Model Tier Overrides ===
+# ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
+# ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
+# ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+
+# === AWS Bedrock ===
+# CLAUDE_CODE_USE_BEDROCK=1
+# AWS_REGION=us-east-1
+# AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
+
+# === Google Vertex AI ===
+# CLAUDE_CODE_USE_VERTEX=1
+# CLOUD_ML_REGION=us-east5
+# ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
+# GOOGLE_APPLICATION_CREDENTIALS=./credentials/gcp-sa-key.json
+
+# === Router Mode (Experimental) ===
+# OPENAI_API_KEY=sk-...
+# ROUTER_DEFAULT=openai,gpt-5.2
+```
+
+### Testing Configuration (Optional)
+
+Create a YAML configuration file for advanced testing scenarios:
+
+```bash
+cp configs/example-config.yaml configs/my-app.yaml
+```
+
+Example configuration with authentication:
+
+```yaml configs/my-app.yaml
+authentication:
+  login_type: form
+  login_url: "https://your-app.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "yourpassword"
+    totp_secret: "LB2E2RX7XFHSTGCK"  # Optional 2FA
+
+  login_flow:
+    - "Type $username into the email field"
+    - "Type $password into the password field"
+    - "Click the 'Sign In' button"
+    - "Enter $totp in the verification code field"
+    - "Click 'Verify'"
+
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+
+rules:
+  avoid:
+    - description: "Skip logout functionality"
+      type: path
+      url_path: "/logout"
+
+  focus:
+    - description: "Prioritize API endpoints"
+      type: path
+      url_path: "/api"
+```
+
+Use the config when starting Shannon:
+
+```bash
+./shannon start URL=https://your-app.com REPO=your-app CONFIG=./configs/my-app.yaml
+```
+
+<Info>
+Shannon supports **TOTP 2FA authentication** automatically. Just add your `totp_secret` to the config — Shannon will generate codes during testing.
+</Info>
+
+## Platform-Specific Notes
+
+### macOS
+
+- Works out of the box with Docker Desktop
+- Access Temporal UI at `http://localhost:8233`
+- No additional configuration needed
+
+### Linux
+
+- May require `sudo` for Docker commands (or add user to `docker` group)
+- Ensure Docker daemon is running: `sudo systemctl start docker`
+- If output files have permission issues, verify Docker user has write access
+
+### Windows (WSL2)
+
+- **Must use WSL2** — native Windows is experimental
+- Clone Shannon inside WSL filesystem (not `/mnt/c/...`)
+- Access Temporal UI at `http://<wsl-ip>:8233` (find IP with `ip addr`)
+- Windows Defender may flag exploit reports — add exclusion
+
+### Testing Local Applications
+
+Docker containers can't reach `localhost` on your host. Use `host.docker.internal`:
+
+```bash
+# WRONG: Shannon can't reach localhost:3000 from inside Docker
+./shannon start URL=http://localhost:3000 REPO=app
+
+# CORRECT: Use special DNS name for host machine
+./shannon start URL=http://host.docker.internal:3000 REPO=app
+```
+
+## Troubleshooting Installation
+
+<AccordionGroup>
+  <Accordion title="Repository not found error">
+    **Problem:** `ERROR: Repository not found at ./repos/my-repo`
+
+    **Solution:** `REPO` must be a folder name inside `./repos/`, not an absolute path:
+
+    ```bash
+    # Clone your repo into ./repos/
+    git clone https://github.com/org/repo.git ./repos/my-repo
+
+    # Then use just the folder name
+    ./shannon start URL=https://example.com REPO=my-repo
+    ```
+  </Accordion>
+
+  <Accordion title="Temporal not ready">
+    **Problem:** `Timeout waiting for Temporal`
+
+    **Solution:**
+    ```bash
+    # Check container status
+    docker compose ps
+
+    # View Temporal logs
+    docker compose logs temporal
+
+    # Reset and retry
+    ./shannon stop CLEAN=true
+    ./shannon start URL=https://example.com REPO=repo-name
+    ```
+  </Accordion>
+
+  <Accordion title="Worker not processing">
+    **Problem:** Workflow starts but no progress is made
+
+    **Solution:**
+    ```bash
+    # Check worker logs
+    docker compose logs worker
+
+    # Restart worker container
+    docker compose restart worker
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied errors">
+    **Problem:** `permission denied` when creating output files
+
+    **Solution:**
+    ```bash
+    # Ensure audit-logs is writable
+    chmod 777 ./audit-logs
+
+    # Linux: Add user to docker group
+    sudo usermod -aG docker $USER
+    newgrp docker
+    ```
+  </Accordion>
+
+  <Accordion title="Missing API key">
+    **Problem:** `ERROR: Set ANTHROPIC_API_KEY in .env`
+
+    **Solution:** Create `.env` file with your credentials:
+    ```bash
+    echo "ANTHROPIC_API_KEY=your-key-here" > .env
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+    Run your first pentest in 5 minutes
+  </Card>
+  <Card title="Configuration Guide" icon="gear" href="/configuration/overview">
+    Set up authentication and testing rules
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/commands">
+    Learn all available commands and options
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/guides/troubleshooting">
+    Solve common issues and errors
+  </Card>
+</CardGroup>
+
+<Warning>
+**Security Reminder:** Shannon actively executes exploits. Always test on sandboxed, staging, or local development environments — never on production systems.
+</Warning>

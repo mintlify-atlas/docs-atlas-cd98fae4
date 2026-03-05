@@ -1,0 +1,319 @@
+---
+title: 'Cost Optimization'
+description: 'Strategies to reduce API costs and optimize Shannon performance'
+---
+
+Running Shannon involves API costs for the AI models powering its agents. This guide covers cost expectations, optimization strategies, and performance tuning.
+
+## Cost Expectations
+
+A typical full Shannon pentest run using **Claude 4.5 Sonnet** costs approximately:
+
+<Card title="Typical Run Cost" icon="dollar-sign">
+  **~$50 USD** per application test
+  
+  Duration: 1 to 1.5 hours
+</Card>
+
+### Cost Breakdown by Phase
+
+Costs vary depending on application complexity and code size:
+
+| Phase | Typical Cost | Duration | Notes |
+|-------|--------------|----------|-------|
+| **Pre-Recon** | $4-8 | 10-15 min | Source code analysis + external scans |
+| **Recon** | $6-10 | 15-20 min | Attack surface mapping |
+| **Vulnerability Analysis** | $20-25 | 30-40 min | 5 agents running in parallel |
+| **Exploitation** | $12-18 | 25-35 min | 5 agents running in parallel |
+| **Reporting** | $2-4 | 5-10 min | Report compilation |
+
+The **analysis and exploitation phases** account for 60-70% of total cost due to:
+- Parallel execution of 5 specialized agents
+- Deep code analysis and data flow tracing
+- Browser automation for exploit validation
+- Multiple retry attempts for complex exploits
+
+<Note>
+Costs vary based on:
+- **Application complexity**: Larger codebases require more analysis
+- **API surface size**: More endpoints = more testing
+- **Vulnerability count**: More findings = more exploitation attempts
+- **Model selection**: Using different models affects pricing (see below)
+</Note>
+
+## Optimization Strategies
+
+### 1. Tune Concurrent Pipelines
+
+By default, Shannon runs **all 5 vulnerability pipelines concurrently** (injection, XSS, auth, authz, SSRF). This maximizes speed but creates burst API usage.
+
+**Reduce concurrency to lower costs:**
+
+Create or edit your config file (`./configs/my-config.yaml`):
+
+```yaml
+pipeline:
+  max_concurrent_pipelines: 2  # Run 2 pipelines at a time
+```
+
+**Concurrency levels:**
+
+| Setting | Wall-Clock Time | Burst API Usage | Best For |
+|---------|-----------------|-----------------|----------|
+| `5` (default) | 1-1.5 hours | Highest | Fast results, pay-per-use API plans |
+| `3` | 1.5-2 hours | Moderate | Balanced speed and cost |
+| `2` | 2-2.5 hours | Lower | Subscription plans with rate limits |
+| `1` | 2.5-3 hours | Minimal | Tight rate limits, overnight runs |
+
+**Run with your config:**
+
+```bash
+./shannon start URL=https://app.com REPO=my-repo CONFIG=./configs/my-config.yaml
+```
+
+<Tip>
+For **Anthropic subscription plans** with rolling 5-hour windows, use `max_concurrent_pipelines: 2` to avoid hitting rate limits. See [Subscription Plan Configuration](#subscription-plan-configuration) below.
+</Tip>
+
+### 2. Use Workspaces and Resume
+
+Failed or interrupted runs can be costly if you restart from scratch. Shannon's **workspace system** allows resuming without repeating completed work:
+
+```bash
+# Start with a named workspace
+./shannon start URL=https://app.com REPO=my-repo WORKSPACE=my-audit
+
+# If interrupted or failed, resume from the same workspace
+./shannon start URL=https://app.com REPO=my-repo WORKSPACE=my-audit
+```
+
+**Resume behavior:**
+- ✅ Completed agents are **skipped entirely** (zero cost)
+- ⚠️ Failed agents are **retried** (incur cost)
+- 📦 Agent progress is checkpointed via git commits
+
+**Example cost savings:**
+
+If a run fails during the exploitation phase:
+- **Without resume**: Full restart costs ~$50
+- **With resume**: Only exploitation phase costs ~$15
+
+<Warning>
+The `URL` must match the original workspace when resuming. Shannon validates this to prevent cross-target contamination.
+</Warning>
+
+### 3. Subscription Plan Configuration
+
+Anthropic subscription plans (e.g., Claude Pro) have usage limits that reset on a **rolling 5-hour window**. Without proper configuration, Shannon's default retry strategy will exhaust attempts before the window resets.
+
+**Recommended configuration:**
+
+```yaml
+pipeline:
+  retry_preset: subscription          # Max 6h backoff, 100 retries
+  max_concurrent_pipelines: 2         # Reduce burst usage
+```
+
+**How it works:**
+- `retry_preset: subscription`: Extends maximum backoff to 6 hours (longer than the 5-hour reset window), allowing Shannon to wait out the rate limit
+- `max_concurrent_pipelines: 2`: Reduces the chance of hitting rate limits by spreading API calls over time
+
+**Alternative for severe rate limits:**
+
+```yaml
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 1         # Run one pipeline at a time
+```
+
+This maximizes the time between API calls but increases total run time to 2.5-3 hours.
+
+### 4. Target Specific Vulnerability Types
+
+If you only need to test for specific vulnerability types (e.g., only injection and XSS), you can reduce costs by limiting the scope.
+
+<Note>
+This feature requires modifying the workflow configuration. It's recommended for advanced users familiar with Shannon's architecture. See `src/temporal/workflows.ts` for implementation details.
+</Note>
+
+### 5. Use PIPELINE_TESTING Mode for Iteration
+
+When developing custom configurations or testing Shannon's behavior, use `PIPELINE_TESTING=true` to reduce costs:
+
+```bash
+./shannon start URL=https://app.com REPO=my-repo PIPELINE_TESTING=true
+```
+
+**Changes in this mode:**
+- Minimal prompt templates (shorter = cheaper)
+- 10-second retry delays instead of exponential backoff
+- Skips external tools (nmap, subfinder, whatweb)
+
+<Warning>
+Do not use `PIPELINE_TESTING=true` for production pentests. It's designed for development and testing only.
+</Warning>
+
+## Alternative Model Selection
+
+Shannon uses three model tiers:
+
+| Tier | Default Model | Purpose | Cost Impact |
+|------|---------------|---------|-------------|
+| **Small** | claude-haiku-4-5 | Summarization, simple tasks | Low |
+| **Medium** | claude-sonnet-4-6 | Security analysis, main workload | High |
+| **Large** | claude-opus-4-6 | Deep reasoning, complex exploits | Highest |
+
+You can configure alternative models via environment variables:
+
+```bash
+export ANTHROPIC_SMALL_MODEL="claude-haiku-4-5-20251001"
+export ANTHROPIC_MEDIUM_MODEL="claude-sonnet-4-6"
+export ANTHROPIC_LARGE_MODEL="claude-opus-4-6"
+```
+
+### Using AWS Bedrock or Google Vertex AI
+
+Both providers may offer different pricing than direct Anthropic API:
+
+**AWS Bedrock:**
+```bash
+export CLAUDE_CODE_USE_BEDROCK=1
+export AWS_REGION=us-east-1
+export AWS_BEARER_TOKEN_BEDROCK=your-token
+
+export ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+export ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
+export ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
+```
+
+**Google Vertex AI:**
+```bash
+export CLAUDE_CODE_USE_VERTEX=1
+export CLOUD_ML_REGION=us-east5
+export ANTHROPIC_VERTEX_PROJECT_ID=your-project-id
+export GOOGLE_APPLICATION_CREDENTIALS=./credentials/gcp-sa-key.json
+
+export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
+export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
+export ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+```
+
+Pricing varies by region and provider. Check your provider's documentation for current rates.
+
+## Tracking Costs
+
+Shannon records detailed cost metrics in `session.json`:
+
+```json
+{
+  "totalCost": "$48.32",
+  "costBreakdown": {
+    "pre-recon": "$6.45",
+    "recon": "$8.12",
+    "vuln-injection": "$5.23",
+    "vuln-xss": "$4.89",
+    "vuln-auth": "$4.12",
+    "vuln-authz": "$3.87",
+    "vuln-ssrf": "$4.56",
+    "exploit-injection": "$3.21",
+    "exploit-xss": "$2.98",
+    "exploit-auth": "$2.45",
+    "exploit-authz": "$1.89",
+    "exploit-ssrf": "$2.12",
+    "report": "$2.43"
+  }
+}
+```
+
+Use this data to:
+- Identify which agents consume the most tokens
+- Compare costs across different applications
+- Justify security testing budgets
+
+## Performance vs. Cost Trade-offs
+
+| Optimization | Cost Savings | Time Increase | Trade-off |
+|--------------|--------------|---------------|------------|
+| `max_concurrent_pipelines: 3` | ~15% | +30 min | Good balance |
+| `max_concurrent_pipelines: 2` | ~25% | +1 hour | Best for subscriptions |
+| `max_concurrent_pipelines: 1` | ~30% | +1.5 hours | Maximum savings |
+| Resume after failure | 50-80% | None | No downside |
+| PIPELINE_TESTING mode | 60-70% | -15 min | Development only |
+
+## Best Practices
+
+1. **Always use named workspaces** for important pentests:
+   ```bash
+   ./shannon start URL=https://app.com REPO=my-repo WORKSPACE=q1-security-audit
+   ```
+
+2. **Configure retry strategy for your API plan:**
+   - Subscription plans: `retry_preset: subscription`
+   - Pay-per-use: Default settings work well
+
+3. **Start with `max_concurrent_pipelines: 2`** for your first runs, then adjust based on:
+   - How quickly you need results
+   - Your rate limit tolerance
+   - API plan limits
+
+4. **Monitor costs in real-time** via `session.json` in the workspace directory
+
+5. **Run overnight for maximum cost efficiency:**
+   ```bash
+   # Lower concurrency for minimal API burst
+   ./shannon start URL=https://app.com REPO=my-repo \
+     WORKSPACE=overnight-test \
+     CONFIG=./configs/cost-optimized.yaml
+   ```
+
+## Example Cost-Optimized Configuration
+
+Create `./configs/cost-optimized.yaml`:
+
+```yaml
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 2
+
+authentication:
+  # Your auth config here
+  login_type: form
+  login_url: "https://your-app.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "yourpassword"
+
+rules:
+  focus:
+    - description: "Focus on API endpoints for faster, targeted testing"
+      type: path
+      url_path: "/api"
+```
+
+Run with:
+```bash
+./shannon start URL=https://app.com REPO=my-repo \
+  WORKSPACE=cost-optimized-run \
+  CONFIG=./configs/cost-optimized.yaml
+```
+
+## When to Prioritize Speed Over Cost
+
+Use default settings (5 concurrent pipelines) when:
+- **Time-sensitive security issues** need immediate validation
+- **Pre-deployment testing** in CI/CD pipelines
+- **Incident response** requires fast vulnerability assessment
+- Using **pay-per-use API plans** without rate limits
+
+Use cost-optimized settings when:
+- Running **routine security audits**
+- Using **subscription API plans** with rate limits
+- **Budget constraints** are a priority
+- Testing **large applications** where cost scales significantly
+
+## Next Steps
+
+- Review your API plan's rate limits and pricing
+- Configure your first cost-optimized run
+- Monitor costs via `session.json` after each run
+- Join our [Discord](https://discord.gg/KAqzSHHpRt) to discuss optimization strategies with the community

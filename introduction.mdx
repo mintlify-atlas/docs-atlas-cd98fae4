@@ -1,0 +1,127 @@
+---
+title: Introduction
+description: Shannon is a fully autonomous AI pentester that finds and exploits actual vulnerabilities in web applications
+---
+
+<div className="flex flex-col items-center justify-center py-12 px-4">
+  <div className="max-w-4xl w-full text-center space-y-8">
+    <div className="space-y-4">
+      <h1 className="text-5xl font-black tracking-tight" style={{ fontFamily: 'Inter, sans-serif', color: '#111111' }}>
+        Shannon
+      </h1>
+      <p className="text-xl font-normal" style={{ fontFamily: 'Inter, sans-serif', color: '#4A4A4A' }}>
+        Your fully autonomous AI pentester
+      </p>
+      <p className="text-lg leading-relaxed max-w-2xl mx-auto" style={{ fontFamily: 'Inter, sans-serif', color: '#4A4A4A' }}>
+        Shannon's job is simple: break your web app before anyone else does. The Red Team to your vibe-coding Blue team. Every Claude (coder) deserves their Shannon.
+      </p>
+    </div>
+
+    <div className="pt-8">
+      <CardGroup cols={2}>
+        <Card title="Quick Start" icon="rocket" href="/quickstart">
+          Get Shannon running in minutes with a single command
+        </Card>
+        <Card title="Architecture" icon="diagram-project" href="/concepts/architecture">
+          Learn how Shannon's multi-agent system works
+        </Card>
+        <Card title="CLI Reference" icon="terminal" href="/cli/commands">
+          Explore all available commands and options
+        </Card>
+        <Card title="Sample Reports" icon="file-shield" href="/reports/overview">
+          See real penetration test results from Shannon
+        </Card>
+      </CardGroup>
+    </div>
+  </div>
+</div>
+
+## What is Shannon?
+
+Shannon is an AI pentester that delivers actual exploits, not just alerts. Shannon's goal is to break your web app before someone else does. It autonomously hunts for attack vectors in your code, then uses its built-in browser to execute real exploits, such as injection attacks and auth bypass, to prove the vulnerability is actually exploitable.
+
+<Note>
+Shannon Lite achieves a **96.15% success rate** on the hint-free, source-aware XBOW Benchmark.
+</Note>
+
+### The Problem Shannon Solves
+
+Thanks to tools like Claude Code and Cursor, your team ships code non-stop. But your penetration test? That happens once a year. This creates a massive security gap. For the other 364 days, you could be unknowingly shipping vulnerabilities to production.
+
+Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn't just find potential issues — it executes real exploits, providing concrete proof of vulnerabilities. This lets you ship with confidence, knowing every build can be secured.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Fully Autonomous Operation" icon="wand-magic-sparkles">
+    Launch the pentest with a single command. The AI handles everything from advanced 2FA/TOTP logins to the final report with zero intervention.
+  </Card>
+  <Card title="Pentester-Grade Reports" icon="file-lines">
+    Delivers a final report focused on proven, exploitable findings, complete with copy-and-paste Proof-of-Concepts to eliminate false positives.
+  </Card>
+  <Card title="Critical OWASP Coverage" icon="shield-halved">
+    Identifies and validates Injection, XSS, SSRF, and Broken Authentication/Authorization vulnerabilities with more types in development.
+  </Card>
+  <Card title="Code-Aware Testing" icon="magnifying-glass-chart">
+    Analyzes your source code to intelligently guide its attack strategy, then performs live exploits on the running application.
+  </Card>
+  <Card title="Integrated Security Tools" icon="toolbox">
+    Enhances discovery with Nmap, Subfinder, WhatWeb, and Schemathesis for deep analysis of the target environment.
+  </Card>
+  <Card title="Parallel Processing" icon="gauge-high">
+    Get your report faster with parallelized vulnerability analysis and exploitation phases running concurrently.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+Shannon emulates a human penetration tester's methodology using a sophisticated multi-agent architecture:
+
+<Steps>
+  <Step title="Reconnaissance">
+    Builds a comprehensive map of your application's attack surface by analyzing source code and performing live exploration via browser automation.
+  </Step>
+  <Step title="Vulnerability Analysis">
+    Specialized agents for each OWASP category hunt for potential flaws in parallel, performing structured data flow analysis to trace user input to dangerous sinks.
+  </Step>
+  <Step title="Exploitation">
+    Dedicated exploit agents attempt to execute real-world attacks using browser automation, command-line tools, and custom scripts to prove vulnerabilities are exploitable.
+  </Step>
+  <Step title="Reporting">
+    Compiles all validated findings into a professional report with reproducible, copy-and-paste Proof-of-Concepts — only verified vulnerabilities are included.
+  </Step>
+</Steps>
+
+<Note>
+Shannon enforces a strict "No Exploit, No Report" policy. If a hypothesis cannot be successfully exploited to demonstrate impact, it is discarded as a false positive.
+</Note>
+
+## Product Line
+
+Shannon is available in two editions:
+
+| Edition | License | Best For |
+|---------|---------|----------|
+| **Shannon Lite** | AGPL-3.0 | Security teams, independent researchers, testing your own applications |
+| **Shannon Pro** | Commercial | Enterprises requiring advanced features, CI/CD integration, and dedicated support |
+
+<Warning>
+**White-box only.** Shannon Lite is designed for white-box (source-available) application security testing. It expects access to your application's source code and repository layout.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Guide" icon="bolt" href="/quickstart">
+    Get Shannon running in 5 minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed installation and setup instructions
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/overview">
+    Understand Shannon's architecture and workflow
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/overview">
+    Configure authentication and testing parameters
+  </Card>
+</CardGroup>

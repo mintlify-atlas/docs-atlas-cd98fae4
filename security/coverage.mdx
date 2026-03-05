@@ -1,0 +1,220 @@
+---
+title: Coverage & Roadmap
+description: OWASP vulnerability categories and testing scope covered by Shannon
+---
+
+## Current Coverage
+
+Shannon currently targets the following classes of **exploitable** vulnerabilities:
+
+### Critical OWASP Vulnerability Categories
+
+<CardGroup cols={2}>
+  <Card title="Injection" icon="syringe">
+    - SQL Injection (SQLi)
+    - Command Injection
+    - Code Injection
+    - Server-Side Template Injection (SSTI)
+  </Card>
+  
+  <Card title="Cross-Site Scripting" icon="code">
+    - Reflected XSS
+    - Stored XSS
+    - DOM-based XSS
+    - HTML Injection
+  </Card>
+  
+  <Card title="Authentication & Authorization" icon="shield-halved">
+    - Broken Authentication
+    - Broken Authorization
+    - Privilege Escalation
+    - Insecure Direct Object References (IDOR)
+    - OAuth Weaknesses
+    - JWT Vulnerabilities
+  </Card>
+  
+  <Card title="Server-Side Request Forgery" icon="server">
+    - Internal Network Access
+    - Cloud Metadata Exploitation
+    - Port Scanning
+    - Protocol Smuggling
+  </Card>
+</CardGroup>
+
+## Detailed Testing Checklist
+
+The table below shows specific Web Security Testing (WST) categories and items that Shannon consistently and reliably addresses. Our coverage is strategically focused on WST controls applicable to today's web application technology stacks.
+
+### Information Gathering
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-INFO-02 | Fingerprint Web Server | ✅ |
+| WSTG-INFO-06 | Identify Application Entry Points | ✅ |
+| WSTG-INFO-07 | Map Execution Paths Through Application | ✅ |
+| WSTG-INFO-08 | Fingerprint Web Application Framework | ✅ |
+| WSTG-INFO-09 | Fingerprint Web Application | ✅ |
+| WSTG-INFO-10 | Map Application Architecture | ✅ |
+
+### Configuration Testing
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-CONF-01 | Test Network Infrastructure Configuration | ✅ |
+| WSTG-CONF-10 | Test for Subdomain Takeover | ✅ |
+
+### Identity Management
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-IDNT-01 | Test Role Definitions | ✅ |
+| WSTG-IDNT-02 | Test User Registration Process | ✅ |
+| WSTG-IDNT-03 | Test Account Provisioning Process | ✅ |
+| WSTG-IDNT-04 | Testing for Account Enumeration and Guessable User Account | ✅ |
+| WSTG-IDNT-05 | Testing for Weak or Unenforced Username Policy | ✅ |
+
+### Authentication Testing
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-ATHN-01 | Testing for Credentials Transported over an Encrypted Channel | ✅ |
+| WSTG-ATHN-02 | Testing for Default Credentials | ✅ |
+| WSTG-ATHN-03 | Testing for Weak Lock Out Mechanism | ✅ |
+| WSTG-ATHN-04 | Testing for Bypassing Authentication Schema | ✅ |
+| WSTG-ATHN-07 | Testing for Weak Password Policy | ✅ |
+| WSTG-ATHN-08 | Testing for Weak Security Question Answer | ✅ |
+| WSTG-ATHN-09 | Testing for Weak Password Change or Reset Functionalities | ✅ |
+| WSTG-ATHN-10 | Testing for Weaker Authentication in Alternative Channel | ✅ |
+| WSTG-ATHN-11 | Testing Multi-Factor Authentication (MFA) | ✅ |
+
+### Authorization Testing
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-ATHZ-01 | Testing Directory Traversal File Include | ✅ |
+| WSTG-ATHZ-02 | Testing for Bypassing Authorization Schema | ✅ |
+| WSTG-ATHZ-03 | Testing for Privilege Escalation | ✅ |
+| WSTG-ATHZ-04 | Testing for Insecure Direct Object References | ✅ |
+| WSTG-ATHZ-05 | Testing for OAuth Weaknesses | ✅ |
+
+### Session Management
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-SESS-01 | Testing for Session Management Schema | ✅ |
+| WSTG-SESS-02 | Testing for Cookies Attributes | ✅ |
+| WSTG-SESS-03 | Testing for Session Fixation | ✅ |
+| WSTG-SESS-05 | Testing for Cross Site Request Forgery | ✅ |
+| WSTG-SESS-06 | Testing for Logout Functionality | ✅ |
+| WSTG-SESS-07 | Testing Session Timeout | ✅ |
+| WSTG-SESS-10 | Testing JSON Web Tokens | ✅ |
+
+### Input Validation
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-INPV-01 | Testing for Reflected Cross Site Scripting | ✅ |
+| WSTG-INPV-02 | Testing for Stored Cross Site Scripting | ✅ |
+| WSTG-INPV-05 | Testing for SQL Injection | ✅ |
+| WSTG-INPV-11 | Testing for Code Injection | ✅ |
+| WSTG-INPV-12 | Testing for Command Injection | ✅ |
+| WSTG-INPV-18 | Testing for Server-Side Template Injection | ✅ |
+| WSTG-INPV-19 | Testing for Server-Side Request Forgery | ✅ |
+
+### Cryptography
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-CRYP-01 | Testing for Weak Transport Layer Security | ✅ |
+| WSTG-CRYP-03 | Testing for Sensitive Information Sent Via Unencrypted Channels | ✅ |
+
+### Client-Side Testing
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-CLNT-01 | Testing for DOM Based Cross Site Scripting | ✅ |
+| WSTG-CLNT-02 | Testing for JavaScript Execution | ✅ |
+| WSTG-CLNT-03 | Testing for HTML Injection | ✅ |
+| WSTG-CLNT-04 | Testing for Client-Side URL Redirect | ✅ |
+| WSTG-CLNT-12 | Test Browser Storage | ✅ |
+| WSTG-CLNT-13 | Testing for Cross Site Script Inclusion | ✅ |
+
+### API Testing
+
+| Test ID | Test Name | Status |
+| --- | --- | --- |
+| WSTG-APIT-01 | API Reconnaissance | ✅ |
+| WSTG-APIT-02 | API Broken Object Level Authorization | ✅ |
+| WSTG-APIT-99 | Testing GraphQL | ✅ |
+
+## What Shannon Does Not Cover
+
+<Warning>
+This list is not exhaustive of all potential security risks. Shannon's "proof-by-exploitation" model means it will not report on issues it cannot actively exploit.
+</Warning>
+
+### Static Analysis Findings
+
+Shannon does not currently report on:
+
+- **Vulnerable Third-Party Libraries**: Outdated dependencies with known CVEs
+- **Weak Encryption Algorithms**: Use of deprecated cryptographic methods
+- **Insecure Configurations**: Server misconfigurations that don't lead to exploits
+- **Code Quality Issues**: Security anti-patterns without exploitable impact
+- **Compliance Violations**: Security policy violations without technical exploitation
+
+<Info>
+These types of deep static-analysis findings are the focus of our upcoming **Keygraph Code Security (SAST)** product and are available in **Shannon Pro** through its advanced data flow analysis engine.
+</Info>
+
+### Out of Scope Vulnerabilities
+
+Certain vulnerability categories require specialized testing approaches:
+
+- **Business Logic Flaws**: Application-specific workflow bypasses
+- **Race Conditions**: Timing-dependent vulnerabilities
+- **Cryptographic Weaknesses**: Advanced cryptanalysis
+- **Physical Security**: Hardware and physical access controls
+- **Social Engineering**: Human factor exploitation
+- **Denial of Service**: Resource exhaustion attacks
+
+## Real-World Performance
+
+Shannon has demonstrated its capabilities on industry-standard vulnerable applications:
+
+### OWASP Juice Shop
+- **20+ critical vulnerabilities** identified
+- Complete authentication bypass
+- Full database exfiltration
+- Privilege escalation to administrator
+- SSRF exploitation for internal network access
+
+### c{api}tal API (Checkmarx)
+- **~15 critical/high vulnerabilities** discovered
+- Root-level command injection
+- Authentication bypass via legacy API
+- Mass assignment privilege escalation
+- Zero false positives on XSS defenses
+
+### OWASP crAPI
+- **15+ critical/high vulnerabilities** validated
+- Multiple JWT attack vectors (alg confusion, alg:none, weak keys)
+- Full database compromise
+- Critical SSRF with token forwarding
+- Zero false positives on XSS defenses
+
+<Tip>
+For quantitative benchmarks, see [Shannon's 96.15% success rate on the XBOW benchmark](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md).
+</Tip>
+
+## Roadmap
+
+We are actively working to expand coverage to provide a more comprehensive security solution for modern web applications. While Shannon's dynamic detection often extends beyond the checked categories, we only mark vulnerabilities we consistently and reliably catch.
+
+### Upcoming Coverage Areas
+
+- Additional injection types (LDAP, XML, XPath)
+- Business logic testing automation
+- Enhanced API security testing
+- Mobile application security
+- Container and cloud-native security

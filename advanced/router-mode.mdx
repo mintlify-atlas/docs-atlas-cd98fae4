@@ -1,0 +1,114 @@
+---
+title: Router Mode (Experimental)
+description: Use alternative AI providers like OpenAI or Google Gemini
+---
+
+<Warning>
+This feature is **EXPERIMENTAL** and **UNSUPPORTED**. Use at your own risk.
+</Warning>
+
+Shannon can experimentally route requests through alternative AI providers using [claude-code-router](https://github.com/musistudio/claude-code-router).
+
+## Why Use Router Mode?
+
+Router mode is intended primarily for:
+
+- **Model experimentation** — Try Shannon with GPT-5.2 or Gemini 3–family models
+- **Testing alternative providers** — Evaluate different AI models for your use case
+
+## Important Disclaimers
+
+<Warning>
+- **Unsupported**: This feature is experimental and not officially supported
+- **Quality varies**: Output quality depends heavily on the model chosen
+- **Built for Claude**: Shannon is built on the Anthropic Agent SDK and optimized for Anthropic Claude models
+- **Inconsistent results**: Alternative providers may produce inconsistent results, including failing early phases like Recon
+- **No guarantees**: Success depends on the model and routing setup
+</Warning>
+
+## Setup Instructions
+
+<Steps>
+  <Step title="Add provider API key to .env">
+    Choose one provider and add its API key:
+
+    ```bash
+    # Option A: OpenAI
+    OPENAI_API_KEY=sk-...
+
+    # Option B: OpenRouter (for Gemini and others)
+    OPENROUTER_API_KEY=sk-or-...
+    ```
+  </Step>
+
+  <Step title="Set default model">
+    Configure the default model using `provider,model` format:
+
+    ```bash
+    ROUTER_DEFAULT=openai,gpt-5.2
+    ```
+  </Step>
+
+  <Step title="Run Shannon with ROUTER=true">
+    ```bash
+    ./shannon start URL=https://example.com REPO=repo-name ROUTER=true
+    ```
+  </Step>
+</Steps>
+
+## Supported Models
+
+### OpenAI
+
+| Model | Model ID |
+|-------|----------|
+| GPT-5.2 | `gpt-5.2` |
+| GPT-5 Mini | `gpt-5-mini` |
+
+### OpenRouter (Gemini)
+
+| Model | Model ID |
+|-------|----------|
+| Gemini 3 Flash Preview | `google/gemini-3-flash-preview` |
+
+## Configuration Example
+
+Here's a complete `.env` example for router mode with OpenAI:
+
+```bash
+# Provider Configuration
+OPENAI_API_KEY=sk-your-openai-key-here
+ROUTER_DEFAULT=openai,gpt-5.2
+
+# Optional: Increase output tokens
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+```
+
+For OpenRouter with Gemini:
+
+```bash
+# Provider Configuration
+OPENROUTER_API_KEY=sk-or-your-openrouter-key-here
+ROUTER_DEFAULT=google/gemini-3-flash-preview
+
+# Optional: Increase output tokens
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+```
+
+## Expected Behavior
+
+<Warning>
+**Shannon is optimized for Anthropic Claude models.** When using alternative providers:
+
+- Some phases may fail completely (especially Recon)
+- Vulnerability detection may be less accurate
+- Exploitation success rates may be significantly lower
+- Report quality may vary
+- Some features may not work at all
+</Warning>
+
+Router mode is provided as-is for experimentation only. For production security testing, we strongly recommend using Anthropic Claude models via:
+
+- [Direct Anthropic API](/advanced/quick-start#anthropic-api-key)
+- [AWS Bedrock](/advanced/bedrock)
+- [Google Vertex AI](/advanced/vertex-ai)

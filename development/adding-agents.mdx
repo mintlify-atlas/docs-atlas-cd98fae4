@@ -1,0 +1,326 @@
+---
+title: Adding Agents
+description: Step-by-step guide to adding new security testing agents to Shannon
+---
+
+This guide walks you through adding a new agent to Shannon's testing pipeline. Agents are modular units that perform specific security testing tasks.
+
+## Prerequisites
+
+Before adding a new agent, you should understand:
+- Shannon's agent registry system (`src/session-manager.ts`)
+- Temporal workflow phases (`src/temporal/workflows.ts`)
+- Prompt template structure (`prompts/` directory)
+- Agent execution lifecycle (`src/services/agent-execution.ts`)
+
+## Agent Types
+
+Shannon has two main agent categories:
+
+<CardGroup cols={2}>
+  <Card title="Vulnerability Analysis Agents" icon="magnifying-glass">
+    Analyze source code and live application to identify potential vulnerabilities
+  </Card>
+  <Card title="Exploitation Agents" icon="bug">
+    Attempt to exploit identified vulnerabilities to prove they are exploitable
+  </Card>
+</CardGroup>
+
+## Adding a New Agent
+
+<Steps>
+  <Step title="Define Agent in AGENTS Registry">
+    Add your agent definition to the `AGENTS` record in `src/session-manager.ts`:
+
+    ```typescript src/session-manager.ts
+    export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
+      // ... existing agents
+      
+      'csrf-vuln': {
+        name: 'csrf-vuln',
+        displayName: 'CSRF vuln agent',
+        prerequisites: ['recon'],
+        promptTemplate: 'vuln-csrf',
+        deliverableFilename: 'csrf_analysis_deliverable.md',
+        modelTier: 'medium',
+      },
+      
+      'csrf-exploit': {
+        name: 'csrf-exploit',
+        displayName: 'CSRF exploit agent',
+        prerequisites: ['csrf-vuln'],
+        promptTemplate: 'exploit-csrf',
+        deliverableFilename: 'csrf_exploitation_evidence.md',
+        modelTier: 'medium',
+      },
+    });
+    ```
+
+    **Key fields:**
+    - `name`: Unique agent identifier (must match type `AgentName`)
+    - `displayName`: Human-readable name for logs
+    - `prerequisites`: Array of agent names that must complete first
+    - `promptTemplate`: Filename in `prompts/` directory (without `.txt`)
+    - `deliverableFilename`: Output markdown file saved to `deliverables/`
+    - `modelTier`: `'small'`, `'medium'`, or `'large'` (defaults to medium)
+
+    <Note>
+      The `deliverableFilename` must match the constants in `mcp-server/src/types/deliverables.ts:DELIVERABLE_FILENAMES` for the `save_deliverable` MCP tool to accept it.
+    </Note>
+  </Step>
+
+  <Step title="Update Type Definitions">
+    Add your agent name to the type definitions in `src/types/agents.ts`:
+
+    ```typescript src/types/agents.ts
+    export type AgentName =
+      | 'pre-recon'
+      | 'recon'
+      // ... existing agents
+      | 'csrf-vuln'
+      | 'csrf-exploit';
+
+    export type VulnType = 'injection' | 'xss' | 'auth' | 'authz' | 'ssrf' | 'csrf';
+    ```
+
+    Also update the phase mapping:
+
+    ```typescript src/session-manager.ts
+    export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.freeze({
+      // ... existing mappings
+      'csrf-vuln': 'vulnerability-analysis',
+      'csrf-exploit': 'exploitation',
+    });
+    ```
+  </Step>
+
+  <Step title="Create Prompt Template">
+    Create a new prompt template file in the `prompts/` directory:
+
+    ```bash
+    touch prompts/vuln-csrf.txt
+    touch prompts/exploit-csrf.txt
+    ```
+
+    Your prompt template should include:
+    - Clear objective and success criteria
+    - Variable placeholders: `{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`, `{{LOGIN_INSTRUCTIONS}}`
+    - Instructions for using available tools (browser, file system, deliverable saving)
+    - Expected deliverable format
+    - Examples of what to look for
+
+    Example structure:
+    ```markdown prompts/vuln-csrf.txt
+    # CSRF Vulnerability Analysis Agent
+
+    You are a security researcher analyzing {{TARGET_URL}} for Cross-Site Request Forgery (CSRF) vulnerabilities.
+
+    ## Objective
+    Identify state-changing endpoints that lack CSRF protection.
+
+    ## Analysis Steps
+    1. Review recon deliverable for all state-changing endpoints
+    2. Analyze source code for CSRF token implementation
+    3. Test endpoints for CSRF protection
+
+    ## Deliverable
+    Save findings to `csrf_analysis_deliverable.md` using the save_deliverable tool.
+    ```
+  </Step>
+
+  <Step title="Add Activity Wrapper (Temporal)">
+    Add a thin activity wrapper in `src/temporal/activities.ts`:
+
+    ```typescript src/temporal/activities.ts
+    export async function runCsrfVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+      return await runAgentActivity('csrf-vuln', input);
+    }
+
+    export async function runCsrfExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+      return await runAgentActivity('csrf-exploit', input);
+    }
+    ```
+
+    The `runAgentActivity` helper delegates to `AgentExecutionService.execute()`, which handles:
+    - Prompt loading and variable substitution
+    - Git checkpoint creation
+    - Claude SDK execution
+    - Deliverable validation
+    - Metrics collection
+    - Error handling and retry
+  </Step>
+
+  <Step title="Register in Temporal Workflow">
+    Add your agent to the appropriate phase in `src/temporal/workflows.ts`.
+
+    For vulnerability/exploitation pipeline agents, add to the `buildPipelineConfigs()` function:
+
+    ```typescript src/temporal/workflows.ts
+    function buildPipelineConfigs(): Array<{...}> {
+      return [
+        // ... existing pipelines
+        {
+          vulnType: 'csrf',
+          vulnAgent: 'csrf-vuln',
+          exploitAgent: 'csrf-exploit',
+          runVuln: () => a.runCsrfVulnAgent(activityInput),
+          runExploit: () => a.runCsrfExploitAgent(activityInput),
+        },
+      ];
+    }
+    ```
+
+    This integrates your agent into the parallel vulnerability→exploitation pipeline.
+  </Step>
+
+  <Step title="Add Agent Validator">
+    Add a validator function in `src/session-manager.ts` to check if the agent completed successfully:
+
+    ```typescript src/session-manager.ts
+    export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
+      // ... existing validators
+      
+      'csrf-vuln': createVulnValidator('csrf'),
+      'csrf-exploit': createExploitValidator('csrf'),
+    });
+    ```
+
+    The factory functions `createVulnValidator()` and `createExploitValidator()` handle standard validation patterns.
+  </Step>
+
+  <Step title="Add MCP Agent Mapping (for Browser Testing)">
+    If your agent needs browser automation, assign it to a Playwright MCP server:
+
+    ```typescript src/session-manager.ts
+    export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze({
+      // ... existing mappings
+      'vuln-csrf': 'playwright-agent1',
+      'exploit-csrf': 'playwright-agent1',
+    });
+    ```
+
+    Shannon has 5 Playwright agents (`playwright-agent1` through `playwright-agent5`) for browser isolation during parallel execution.
+  </Step>
+
+  <Step title="Build and Test">
+    Build the TypeScript code:
+
+    ```bash
+    npm run build
+    ```
+
+    Test your new agent with `PIPELINE_TESTING=true` for fast iteration:
+
+    ```bash
+    ./shannon start URL=https://test-app.com REPO=test-repo PIPELINE_TESTING=true
+    ```
+
+    This uses shorter retry intervals (10s instead of 5min) for faster debugging.
+  </Step>
+</Steps>
+
+## Agent Execution Lifecycle
+
+When your agent runs, `AgentExecutionService.execute()` follows this 9-phase lifecycle:
+
+1. **Load prompt template** from `prompts/{promptTemplate}.txt`
+2. **Substitute variables** (`{{TARGET_URL}}`, etc.)
+3. **Create git checkpoint** for rollback if needed
+4. **Initialize Claude SDK** with MCP servers
+5. **Execute agent** (up to 10,000 turns)
+6. **Validate deliverable** using agent validator
+7. **Collect metrics** (duration, cost, tokens, turns)
+8. **Log completion** with summary
+9. **Return metrics** to Temporal workflow
+
+<Info>
+  If the agent fails validation (missing deliverable), the git checkpoint is automatically rolled back to maintain clean state.
+</Info>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Single Responsibility" icon="bullseye">
+    Each agent should focus on one vulnerability type or testing phase
+  </Card>
+  <Card title="Clear Deliverables" icon="file-check">
+    Define exactly what the agent should save and in what format
+  </Card>
+  <Card title="Progressive Analysis" icon="stairs">
+    Build on previous agents' deliverables rather than starting from scratch
+  </Card>
+  <Card title="Explicit Prerequisites" icon="list-check">
+    Declare all dependencies in the `prerequisites` array
+  </Card>
+</CardGroup>
+
+### Prompt Writing Tips
+
+- **Be specific**: Define exactly what to test and what constitutes a finding
+- **Use examples**: Show sample vulnerable code patterns
+- **Structured output**: Request deliverables in a consistent markdown format
+- **Tool guidance**: Explain when to use browser vs. CLI vs. code analysis
+- **Success criteria**: Define what "complete" looks like
+
+### Testing Your Agent
+
+1. **Start with PIPELINE_TESTING=true** for fast feedback
+2. **Check deliverable format** matches your validator expectations
+3. **Verify metrics** are being collected correctly
+4. **Test resume functionality** by interrupting and restarting
+5. **Run on real vulnerable apps** (OWASP Juice Shop, WebGoat, etc.)
+
+## Example: Complete CSRF Agent Addition
+
+See the full example in the Shannon repository:
+- Agent definitions: `src/session-manager.ts:30-64`
+- Workflow integration: `src/temporal/workflows.ts:250-295`
+- Activity wrappers: `src/temporal/activities.ts:95-126`
+- Prompt templates: `prompts/vuln-*.txt`, `prompts/exploit-*.txt`
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Agent not executing">
+    - Check that `AgentName` type includes your agent name
+    - Verify agent is registered in `AGENTS` record
+    - Ensure activity is added to workflow phase
+    - Check prerequisites are satisfied
+  </Accordion>
+
+  <Accordion title="Deliverable validation failing">
+    - Verify `deliverableFilename` matches MCP server expectations
+    - Check file was actually saved to `deliverables/` directory
+    - Ensure validator function is checking correct path
+    - Review agent logs for save_deliverable errors
+  </Accordion>
+
+  <Accordion title="Agent validator not found">
+    - Add validator to `AGENT_VALIDATORS` record
+    - Use factory functions for standard patterns
+    - Ensure validator signature matches `AgentValidator` type
+  </Accordion>
+
+  <Accordion title="Prompt template not loading">
+    - Check file exists: `prompts/{promptTemplate}.txt`
+    - Verify `promptTemplate` field matches filename (without `.txt`)
+    - Review logs for PromptManager errors
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Modifying Prompts" icon="pen" href="/development/modifying-prompts">
+    Learn about prompt engineering and testing
+  </Card>
+  <Card title="Design Patterns" icon="sitemap" href="/development/design-patterns">
+    Understand Shannon's architectural patterns
+  </Card>
+  <Card title="Agent Registry" icon="list" href="/development/agent-registry">
+    Complete agent registry reference
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/development/error-handling">
+    Handle errors and retries correctly
+  </Card>
+</CardGroup>

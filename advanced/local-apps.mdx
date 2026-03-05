@@ -1,0 +1,104 @@
+---
+title: Testing Local Applications
+description: How to test applications running on your local machine
+---
+
+When testing applications running on your local machine, you'll need to use a special hostname to allow Shannon's Docker containers to reach your host.
+
+## The Problem
+
+Docker containers run in an isolated network environment. When Shannon tries to access `localhost` or `127.0.0.1` from inside a container, it reaches the container's own network interface, not your host machine.
+
+## The Solution
+
+Use `host.docker.internal` instead of `localhost` when specifying the target URL.
+
+## Usage
+
+```bash
+./shannon start URL=http://host.docker.internal:3000 REPO=repo-name
+```
+
+This special DNS name resolves to your host machine's IP address from within Docker containers.
+
+## Examples
+
+### Testing a local web application on port 3000
+
+```bash
+./shannon start URL=http://host.docker.internal:3000 REPO=my-webapp
+```
+
+### Testing a local API on port 8080
+
+```bash
+./shannon start URL=http://host.docker.internal:8080 REPO=my-api
+```
+
+### Testing with HTTPS (if your local app supports it)
+
+```bash
+./shannon start URL=https://host.docker.internal:3443 REPO=my-secure-app
+```
+
+## Platform Support
+
+| Platform | Support |
+|----------|----------|
+| macOS | ✅ Native Docker Desktop support |
+| Windows (Docker Desktop) | ✅ Native support |
+| Windows (WSL2) | ✅ Supported |
+| Linux | ⚠️ May require additional configuration |
+
+### Linux Notes
+
+On Linux, `host.docker.internal` is not automatically available in older Docker versions. You may need to:
+
+1. Use `--add-host` flag in Docker (handled automatically by Shannon)
+2. Or use your machine's actual IP address instead:
+
+```bash
+# Find your IP address
+ip addr show
+
+# Use the IP address directly
+./shannon start URL=http://192.168.1.100:3000 REPO=repo-name
+```
+
+## Troubleshooting
+
+### Connection Refused
+
+If Shannon cannot connect to your local application:
+
+1. **Verify the app is running**: Check that your application is actually running on the specified port
+2. **Check the port**: Make sure you're using the correct port number
+3. **Firewall settings**: Ensure your firewall isn't blocking the connection
+4. **Binding address**: Make sure your app is binding to `0.0.0.0` or your machine's IP, not just `127.0.0.1`
+
+### Application Binding
+
+Make sure your application is configured to accept connections from all interfaces:
+
+**Good** (accessible from Docker):
+```bash
+# Binds to all interfaces
+node server.js --host 0.0.0.0 --port 3000
+```
+
+**Bad** (only accessible locally):
+```bash
+# Only binds to localhost
+node server.js --host 127.0.0.1 --port 3000
+```
+
+## Security Considerations
+
+<Warning>
+When binding your application to `0.0.0.0` for testing, it becomes accessible from your network. Only do this in trusted environments.
+</Warning>
+
+- Use isolated development environments
+- Consider using Docker networks for better isolation
+- Don't expose sensitive applications on your network
+- Use firewall rules to restrict access if needed

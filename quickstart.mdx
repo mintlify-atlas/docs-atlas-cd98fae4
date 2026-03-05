@@ -1,80 +1,214 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get Shannon running and execute your first penetration test in minutes
 ---
 
-## Get started in three steps
+Get Shannon up and running with a single command. This guide will have you executing your first automated penetration test in under 5 minutes.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+- **Docker** installed and running ([Install Docker](https://docs.docker.com/get-docker/))
+- An **Anthropic API key** from the [Anthropic Console](https://console.anthropic.com)
+
+<Note>
+Shannon uses Claude models for autonomous security analysis. You'll need an active Anthropic API key to run pentests.
+</Note>
+
+## Three Steps to Your First Pentest
+
+<Steps>
+  <Step title="Clone and Configure">
+    Clone Shannon and set up your API credentials:
+
+    ```bash
+    # Clone the repository
+    git clone https://github.com/KeygraphHQ/shannon.git
+    cd shannon
+
+    # Configure your API key (choose one method)
+    ```
+
+    <CodeGroup>
+    ```bash Environment Variable
+    export ANTHROPIC_API_KEY="your-api-key"
+    export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+    ```
+
+    ```bash .env File
+    cat > .env << 'EOF'
+    ANTHROPIC_API_KEY=your-api-key
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+    EOF
+    ```
+    </CodeGroup>
+
+    <Tip>
+    Setting `CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000` enables larger tool outputs and improves analysis quality.
+    </Tip>
+  </Step>
+
+  <Step title="Prepare Your Repository">
+    Shannon analyzes source code to guide its attacks. Place your target repository in the `./repos/` directory:
+
+    ```bash
+    # Clone your target application
+    git clone https://github.com/your-org/your-app.git ./repos/your-app
+    ```
+
+    <Note>
+    The `REPO` parameter refers to a folder name inside `./repos/`, not an absolute path.
+    </Note>
+  </Step>
+
+  <Step title="Run Your First Pentest">
+    Launch Shannon with a single command:
+
+    ```bash
+    ./shannon start URL=https://your-app.com REPO=your-app
+    ```
+
+    Shannon will:
+    - Build and start Docker containers
+    - Initialize the Temporal workflow orchestrator
+    - Begin autonomous penetration testing
+    - Return a workflow ID for monitoring
+
+    <Card title="Example Output" icon="terminal">
+    ```
+    Starting Shannon containers...
+    Temporal is ready!
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    🚀 Pentest workflow started
+    Workflow ID: your-app.com_shannon-1234567890
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    Monitor progress:
+      ./shannon logs ID=your-app.com_shannon-1234567890
+      http://localhost:8233
+    ```
+    </Card>
+  </Step>
+</Steps>
 
-### Step 2: Deploy your changes
+## Monitoring Your Pentest
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+Shannon runs in the background. Use these commands to monitor progress:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<CodeGroup>
+```bash Real-time Logs
+# View worker logs as they happen
+./shannon logs ID=your-app.com_shannon-1234567890
+```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+```bash Temporal Web UI
+# Open the Temporal dashboard in your browser
+open http://localhost:8233
+```
 
-### Step 3: Go live
+```bash List Workspaces
+# View all pentest workspaces and their status
+./shannon workspaces
+```
+</CodeGroup>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+<Note>
+Shannon typically completes a full pentest in **1 to 1.5 hours**, depending on application complexity. You can safely close your terminal — the workflow continues in Docker.
+</Note>
 
-## Next steps
+## Getting Your Results
 
-Now that you have your docs running, explore these key features:
+When the pentest completes, find your comprehensive security report:
+
+```bash
+# Reports are saved to audit-logs by default
+cat audit-logs/{hostname}_{sessionId}/deliverables/comprehensive_security_assessment_report.md
+```
+
+The report includes:
+
+- **Verified vulnerabilities only** — Shannon's "No Exploit, No Report" policy eliminates false positives
+- **Reproducible exploits** — Copy-and-paste Proof-of-Concepts you can run immediately
+- **Source code references** — Exact file and line numbers for each vulnerability
+- **Impact analysis** — Real-world damage potential of each finding
+
+<Warning>
+**DO NOT run Shannon on production environments.** Shannon actively executes exploits that can modify or delete data. Always test on staging, sandboxed, or local development environments.
+</Warning>
+
+## Advanced Options
+
+Customize your pentest with additional parameters:
+
+<CodeGroup>
+```bash Named Workspace
+# Use a memorable workspace name for easy resumption
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
+```
+
+```bash Configuration File
+# Use a YAML config for authentication and testing rules
+./shannon start URL=https://example.com REPO=repo-name CONFIG=./configs/my-config.yaml
+```
+
+```bash Custom Output Directory
+# Save reports to a specific location
+./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+```
+
+```bash Local Application
+# Test apps running on your local machine (use host.docker.internal)
+./shannon start URL=http://host.docker.internal:3000 REPO=repo-name
+```
+</CodeGroup>
+
+## What Happens During a Pentest?
+
+Shannon executes a multi-phase workflow:
+
+1. **Pre-Reconnaissance** — External scans with nmap, subfinder, whatweb + source code analysis
+2. **Reconnaissance** — Attack surface mapping and entry point discovery
+3. **Vulnerability Analysis** — 5 parallel agents hunt for injection, XSS, SSRF, auth flaws, authorization issues
+4. **Exploitation** — Real browser-based attacks to prove vulnerabilities are exploitable
+5. **Reporting** — Professional security report with only verified, reproducible findings
+
+<Info>
+Phases 3 and 4 run in parallel for maximum speed. Shannon uses intelligent retry logic to handle API rate limits automatically.
+</Info>
+
+## Stopping Shannon
+
+When you're done, stop the containers:
+
+<CodeGroup>
+```bash Preserve Data
+# Stop containers but keep workflow data for later analysis
+./shannon stop
+```
+
+```bash Full Cleanup
+# Remove all containers, volumes, and data
+./shannon stop CLEAN=true
+```
+</CodeGroup>
+
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Detailed installation for Windows, macOS, and Linux
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/overview">
+    Set up authentication, 2FA, and testing rules
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/commands">
+    Explore all available commands and options
+  </Card>
+  <Card title="Sample Reports" icon="file-shield" href="/reports/overview">
+    See real pentest results from Shannon
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+**Need help?** Join our [Discord community](https://discord.gg/KAqzSHHpRt) or check [troubleshooting](/guides/troubleshooting) for common issues.
 </Note>

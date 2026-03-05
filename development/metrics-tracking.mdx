@@ -1,0 +1,488 @@
+---
+title: Metrics Tracking
+description: Session metrics, cost tracking, and performance measurement in Shannon
+---
+
+Shannon tracks comprehensive execution metrics for each pentest session, including timing, cost, token usage, and turn counts. All metrics are persisted to `session.json` in the audit logs directory.
+
+## MetricsTracker Class
+
+The `MetricsTracker` class manages all metrics for a session:
+
+```typescript
+export class MetricsTracker {
+  private sessionMetadata: SessionMetadata;
+  private sessionJsonPath: string;
+  private data: SessionData | null = null;
+  private activeTimers: Map<string, ActiveTimer> = new Map();
+
+  constructor(sessionMetadata: SessionMetadata) {
+    this.sessionMetadata = sessionMetadata;
+    this.sessionJsonPath = generateSessionJsonPath(sessionMetadata);
+  }
+}
+```
+
+Location: `src/audit/metrics-tracker.ts:85`
+
+### Key Methods
+
+- **`initialize(workflowId?: string)`** - Initialize or load existing session.json
+- **`startAgent(agentName, attemptNumber)`** - Start timing an agent execution
+- **`endAgent(agentName, result)`** - End timing and update metrics
+- **`updateSessionStatus(status)`** - Update session completion status
+- **`addResumeAttempt(workflowId, terminatedWorkflows, checkpointHash)`** - Track workflow resume
+- **`getMetrics()`** - Get current metrics snapshot
+- **`reload()`** - Reload metrics from disk
+
+## SessionData Structure
+
+The complete session data structure persisted to `session.json`:
+
+```typescript
+interface SessionData {
+  session: {
+    id: string;
+    webUrl: string;
+    repoPath?: string;
+    status: 'in-progress' | 'completed' | 'failed';
+    createdAt: string;
+    completedAt?: string;
+    originalWorkflowId?: string;
+    resumeAttempts?: ResumeAttempt[];
+  };
+  metrics: {
+    total_duration_ms: number;
+    total_cost_usd: number;
+    phases: Record<string, PhaseMetrics>;
+    agents: Record<string, AgentAuditMetrics>;
+  };
+}
+```
+
+Location: `src/audit/metrics-tracker.ts:58`
+
+### Session Metadata
+
+- **`id`** - Unique session identifier (format: `{hostname}_{timestamp}`)
+- **`webUrl`** - Target web application URL
+- **`repoPath`** - Path to target repository (optional)
+- **`status`** - Current session status
+- **`createdAt`** - ISO 8601 timestamp when session was created
+- **`completedAt`** - ISO 8601 timestamp when session completed (if finished)
+- **`originalWorkflowId`** - First workflow ID that created this workspace
+- **`resumeAttempts`** - Array of resume attempt records
+
+### Session Status Values
+
+- **`in-progress`** - Session is currently executing
+- **`completed`** - Session completed successfully
+- **`failed`** - Session failed permanently
+
+## AgentMetrics Interface
+
+Metrics returned by the Claude SDK after agent execution:
+
+```typescript
+export interface AgentMetrics {
+  durationMs: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: number | null;
+  numTurns: number | null;
+  model?: string | undefined;
+}
+```
+
+Location: `src/types/metrics.ts:12`
+
+### Field Descriptions
+
+- **`durationMs`** - Execution time in milliseconds
+- **`inputTokens`** - Total input tokens consumed (null if unavailable)
+- **`outputTokens`** - Total output tokens generated (null if unavailable)
+- **`costUsd`** - Total cost in USD (null if unavailable)
+- **`numTurns`** - Number of agent turns executed (null if unavailable)
+- **`model`** - Claude model used (e.g., "claude-3-5-sonnet-20241022")
+
+## AgentAuditMetrics Structure
+
+Per-agent metrics tracked in `session.json`:
+
+```typescript
+interface AgentAuditMetrics {
+  status: 'in-progress' | 'success' | 'failed';
+  attempts: AttemptData[];
+  final_duration_ms: number;
+  total_cost_usd: number;
+  model?: string | undefined;
+  checkpoint?: string | undefined;
+}
+```
+
+Location: `src/audit/metrics-tracker.ts:35`
+
+### Agent Status Values
+
+- **`in-progress`** - Agent is currently executing
+- **`success`** - Agent completed successfully
+- **`failed`** - Agent failed after all retry attempts
+
+### Metrics Fields
+
+- **`status`** - Current agent execution status
+- **`attempts`** - Array of all execution attempts (including failures)
+- **`final_duration_ms`** - Duration of successful attempt (0 if failed)
+- **`total_cost_usd`** - Sum of costs across all attempts
+- **`model`** - Claude model used for successful attempt
+- **`checkpoint`** - Git checkpoint hash for successful attempt
+
+## AttemptData Structure
+
+Detailed data for each execution attempt:
+
+```typescript
+interface AttemptData {
+  attempt_number: number;
+  duration_ms: number;
+  cost_usd: number;
+  success: boolean;
+  timestamp: string;
+  model?: string | undefined;
+  error?: string | undefined;
+}
+```
+
+Location: `src/audit/metrics-tracker.ts:25`
+
+### Field Descriptions
+
+- **`attempt_number`** - Attempt number (1, 2, 3)
+- **`duration_ms`** - Execution time for this attempt
+- **`cost_usd`** - Cost incurred for this attempt
+- **`success`** - Whether this attempt succeeded
+- **`timestamp`** - ISO 8601 timestamp when attempt started
+- **`model`** - Claude model used (optional)
+- **`error`** - Error message if attempt failed (optional)
+
+## PhaseMetrics Structure
+
+Aggregated metrics per pipeline phase:
+
+```typescript
+interface PhaseMetrics {
+  duration_ms: number;
+  duration_percentage: number;
+  cost_usd: number;
+  agent_count: number;
+}
+```
+
+Location: `src/audit/metrics-tracker.ts:44`
+
+### Field Descriptions
+
+- **`duration_ms`** - Total duration for all agents in this phase
+- **`duration_percentage`** - Percentage of total session duration
+- **`cost_usd`** - Total cost for all agents in this phase
+- **`agent_count`** - Number of agents in this phase
+
+### Phase Names
+
+```typescript
+export type PhaseName = 'pre-recon' | 'recon' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
+```
+
+Location: `src/session-manager.ts:111`
+
+## Resume Tracking
+
+Resume attempts are tracked for crash recovery and debugging:
+
+```typescript
+export interface ResumeAttempt {
+  workflowId: string;
+  timestamp: string;
+  terminatedPrevious?: string;
+  resumedFromCheckpoint?: string;
+}
+```
+
+Location: `src/audit/metrics-tracker.ts:51`
+
+### Field Descriptions
+
+- **`workflowId`** - New workflow ID for this resume attempt
+- **`timestamp`** - ISO 8601 timestamp when resume was triggered
+- **`terminatedPrevious`** - Comma-separated list of terminated workflow IDs
+- **`resumedFromCheckpoint`** - Git checkpoint hash that was restored
+
+## AgentEndResult
+
+Data passed to `MetricsTracker.endAgent()` when an agent completes:
+
+```typescript
+export interface AgentEndResult {
+  attemptNumber: number;
+  duration_ms: number;
+  cost_usd: number;
+  success: boolean;
+  model?: string | undefined;
+  error?: string | undefined;
+  checkpoint?: string | undefined;
+  isFinalAttempt?: boolean | undefined;
+}
+```
+
+Location: `src/types/audit.ts:26`
+
+## Metrics Calculation
+
+### Total Duration and Cost
+
+Only successful agents count toward totals:
+
+```typescript
+const successfulAgents = Object.entries(agents).filter(
+  ([, data]) => data.status === 'success'
+);
+
+const totalDuration = successfulAgents.reduce(
+  (sum, [, data]) => sum + data.final_duration_ms,
+  0
+);
+
+const totalCost = successfulAgents.reduce(
+  (sum, [, data]) => sum + data.total_cost_usd,
+  0
+);
+```
+
+Location: `src/audit/metrics-tracker.ts:315`
+
+### Phase Metrics
+
+Agents are grouped by phase using `AGENT_PHASE_MAP`:
+
+```typescript
+const phases: Record<PhaseName, AgentAuditMetrics[]> = {
+  'pre-recon': [],
+  'recon': [],
+  'vulnerability-analysis': [],
+  'exploitation': [],
+  'reporting': [],
+};
+
+for (const [agentName, agentData] of successfulAgents) {
+  const phase = AGENT_PHASE_MAP[agentName as AgentName];
+  if (phase) {
+    phases[phase].push(agentData);
+  }
+}
+```
+
+Location: `src/audit/metrics-tracker.ts:335`
+
+### Duration Percentage
+
+Calculated as percentage of total session duration:
+
+```typescript
+phaseMetrics[phaseName] = {
+  duration_ms: phaseDuration,
+  duration_percentage: calculatePercentage(phaseDuration, totalDuration),
+  cost_usd: phaseCost,
+  agent_count: agentList.length,
+};
+```
+
+Location: `src/audit/metrics-tracker.ts:361`
+
+## Cost Tracking
+
+### Per-Attempt Cost
+
+Each attempt tracks its own cost, including failed attempts:
+
+```typescript
+attempt.cost_usd = result.cost_usd;
+```
+
+### Total Agent Cost
+
+Sum of all attempts (successes + failures):
+
+```typescript
+agent.total_cost_usd = agent.attempts.reduce((sum, a) => sum + a.cost_usd, 0);
+```
+
+Location: `src/audit/metrics-tracker.ts:204`
+
+### Session Total Cost
+
+Sum of successful agents only:
+
+```typescript
+const totalCost = successfulAgents.reduce(
+  (sum, [, data]) => sum + data.total_cost_usd,
+  0
+);
+```
+
+<Info>
+  Total cost includes failed attempts. If an agent fails twice and succeeds on the third attempt, all three attempts' costs are included in `total_cost_usd`.
+</Info>
+
+## Turn Counting
+
+The `numTurns` field tracks how many agent-environment interaction turns occurred:
+
+```typescript
+interface AgentMetrics {
+  numTurns: number | null;
+}
+```
+
+**Turn Definition:** One agent action + environment response
+
+**Max Turns:** Configured as 10,000 in Claude SDK integration
+
+**Note:** May be null if SDK doesn't provide turn count
+
+## Atomic Writes
+
+All metrics updates use atomic writes to prevent corruption:
+
+```typescript
+import { atomicWrite } from '../utils/file-io.js';
+
+private async save(): Promise<void> {
+  if (!this.data) return;
+  await atomicWrite(this.sessionJsonPath, this.data);
+}
+```
+
+Location: `src/audit/metrics-tracker.ts:382`
+
+Atomic writes prevent partial writes if the process crashes mid-write.
+
+## Session.json Example
+
+```json
+{
+  "session": {
+    "id": "myhost_1234567890",
+    "webUrl": "https://example.com",
+    "repoPath": "/repos/example-app",
+    "status": "completed",
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "completedAt": "2024-01-15T12:45:30.000Z",
+    "originalWorkflowId": "pentest-example-20240115-103000",
+    "resumeAttempts": []
+  },
+  "metrics": {
+    "total_duration_ms": 8130000,
+    "total_cost_usd": 12.45,
+    "phases": {
+      "pre-recon": {
+        "duration_ms": 1200000,
+        "duration_percentage": 14.76,
+        "cost_usd": 2.30,
+        "agent_count": 1
+      },
+      "recon": {
+        "duration_ms": 900000,
+        "duration_percentage": 11.07,
+        "cost_usd": 1.80,
+        "agent_count": 1
+      },
+      "vulnerability-analysis": {
+        "duration_ms": 3600000,
+        "duration_percentage": 44.28,
+        "cost_usd": 5.50,
+        "agent_count": 5
+      },
+      "exploitation": {
+        "duration_ms": 1800000,
+        "duration_percentage": 22.14,
+        "cost_usd": 2.10,
+        "agent_count": 3
+      },
+      "reporting": {
+        "duration_ms": 630000,
+        "duration_percentage": 7.75,
+        "cost_usd": 0.75,
+        "agent_count": 1
+      }
+    },
+    "agents": {
+      "pre-recon": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 1200000,
+            "cost_usd": 2.30,
+            "success": true,
+            "timestamp": "2024-01-15T10:30:00.000Z",
+            "model": "claude-3-5-sonnet-20241022"
+          }
+        ],
+        "final_duration_ms": 1200000,
+        "total_cost_usd": 2.30,
+        "model": "claude-3-5-sonnet-20241022",
+        "checkpoint": "abc123def456"
+      },
+      "injection-vuln": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 600000,
+            "cost_usd": 0.80,
+            "success": false,
+            "timestamp": "2024-01-15T11:10:00.000Z",
+            "error": "Network timeout"
+          },
+          {
+            "attempt_number": 2,
+            "duration_ms": 720000,
+            "cost_usd": 1.20,
+            "success": true,
+            "timestamp": "2024-01-15T11:25:00.000Z",
+            "model": "claude-3-5-sonnet-20241022"
+          }
+        ],
+        "final_duration_ms": 720000,
+        "total_cost_usd": 2.00,
+        "model": "claude-3-5-sonnet-20241022",
+        "checkpoint": "def789ghi012"
+      }
+    }
+  }
+}
+```
+
+## Metrics Aggregation Workflow
+
+1. **Agent Start** - `MetricsTracker.startAgent()` records start time
+2. **Agent Execution** - Claude SDK runs agent and returns `AgentMetrics`
+3. **Agent End** - `MetricsTracker.endAgent()` receives `AgentEndResult`
+4. **Attempt Recording** - Attempt data appended to agent's attempt history
+5. **Status Update** - Agent status updated to 'success' or 'failed'
+6. **Cost Calculation** - Total cost recalculated across all attempts
+7. **Phase Aggregation** - Phase metrics recalculated from successful agents
+8. **Session Totals** - Session-level totals recalculated
+9. **Atomic Write** - All metrics saved to session.json atomically
+
+## Metrics Location
+
+**Default Path:** `./audit-logs/{hostname}_{sessionId}/session.json`
+
+**Override:** Set `OUTPUT=<path>` environment variable
+
+## Related Documentation
+
+- [Agent Registry](/development/agent-registry) - Agent definitions and execution flow
+- [Error Handling](/development/error-handling) - Error tracking in metrics
+- [Key Files](/development/key-files) - Metrics file locations

@@ -1,0 +1,131 @@
+---
+title: Configuration Overview
+description: Introduction to configuring Shannon for authenticated testing and customized analysis
+---
+
+Shannon can run without a configuration file, but creating one enables authenticated testing, two-factor authentication support, and customized analysis scoping. Configuration files use YAML format and are validated against a JSON schema to ensure correctness.
+
+## When You Need Configuration
+
+You should create a configuration file when:
+
+- **Authenticated Testing**: Your application requires login (form-based, SSO, API, or basic auth)
+- **Two-Factor Authentication**: Your application uses TOTP/2FA for login
+- **Test Scoping**: You want to define specific areas to focus on or avoid during testing
+- **Rate Limit Management**: You're on an Anthropic subscription plan with rolling 5-hour rate limit windows
+- **Concurrency Control**: You want to reduce concurrent pipeline execution to manage API usage
+
+## Configuration File Location
+
+Configuration files must be placed in the `./configs/` directory at the Shannon project root. This directory is automatically mounted into the Docker container.
+
+```bash
+# Copy the example configuration
+cp configs/example-config.yaml configs/my-app-config.yaml
+
+# Edit your configuration
+vim configs/my-app-config.yaml
+
+# Run Shannon with your configuration
+./shannon start URL=https://example.com REPO=repo-name CONFIG=./configs/my-app-config.yaml
+```
+
+## Configuration Structure
+
+A Shannon configuration file can contain three main sections:
+
+### Authentication Section
+
+Defines how Shannon should authenticate with your application:
+
+```yaml
+authentication:
+  login_type: form  # form, sso, api, or basic
+  login_url: "https://example.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "testpassword"
+    totp_secret: "LB2E2RX7XFHSTGCK"  # Optional for 2FA
+  login_flow:
+    - "Type $username into the email field"
+    - "Type $password into the password field"
+    - "Click the 'Sign In' button"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+```
+
+### Rules Section
+
+Defines testing boundaries and priorities:
+
+```yaml
+rules:
+  avoid:
+    - description: "Do not test logout functionality"
+      type: path
+      url_path: "/logout"
+  focus:
+    - description: "Prioritize API testing"
+      type: path
+      url_path: "/api"
+```
+
+### Pipeline Section
+
+Controls retry behavior and concurrency:
+
+```yaml
+pipeline:
+  retry_preset: subscription  # default or subscription
+  max_concurrent_pipelines: 2  # 1-5, default: 5
+```
+
+## Minimal Configuration
+
+You can include only the sections you need. For example, a minimal authenticated testing configuration:
+
+```yaml
+authentication:
+  login_type: form
+  login_url: "https://example.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "testpassword"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+```
+
+## Schema Validation
+
+All configuration files are validated against `configs/config-schema.json`. If validation fails, Shannon will display detailed error messages indicating:
+
+- Missing required fields
+- Invalid types or values
+- Malformed patterns
+- Security violations
+
+The schema enforces:
+- Maximum file size of 1MB
+- Safe YAML parsing (no code execution)
+- Security checks for dangerous patterns
+- Type validation for all fields
+- Conflict detection between rules
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/configuration/authentication">
+    Configure login, credentials, and 2FA
+  </Card>
+  <Card title="YAML Config Reference" icon="file-code" href="/configuration/yaml-config">
+    Complete configuration options reference
+  </Card>
+  <Card title="Retry Strategies" icon="rotate" href="/configuration/retry-strategies">
+    Handle rate limits and subscription plans
+  </Card>
+  <Card title="Pipeline Settings" icon="gears" href="/configuration/pipeline-settings">
+    Control concurrency and testing mode
+  </Card>
+</CardGroup>

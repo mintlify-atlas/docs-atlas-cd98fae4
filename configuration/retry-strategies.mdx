@@ -1,0 +1,301 @@
+---
+title: Retry Strategies
+description: Configure retry behavior for rate limits and subscription plans
+---
+
+Shannon automatically retries failed operations due to rate limits, transient errors, and API throttling. The retry strategy determines how long Shannon will wait between retries and how many attempts it will make.
+
+## Overview
+
+Shannon uses Temporal workflows to orchestrate retries with exponential backoff. When an agent encounters a rate limit or transient error, Shannon automatically:
+
+1. Waits for an initial interval
+2. Retries the operation
+3. Doubles the wait time after each failure (exponential backoff)
+4. Continues until success or maximum attempts reached
+
+## Retry Presets
+
+Shannon provides two retry presets optimized for different use cases:
+
+### Default Preset
+
+The default preset is suitable for most users:
+
+```yaml
+pipeline:
+  retry_preset: default  # Can be omitted; this is the default
+```
+
+**Configuration:**
+- **Initial interval**: 1 minute
+- **Maximum interval**: 30 minutes
+- **Backoff coefficient**: 2× (exponential)
+- **Maximum attempts**: 10
+- **Total timeout**: 3 hours per agent
+
+**Retry sequence:**
+1. Wait 1 minute → retry
+2. Wait 2 minutes → retry
+3. Wait 4 minutes → retry
+4. Wait 8 minutes → retry
+5. Wait 16 minutes → retry
+6. Wait 30 minutes (capped) → retry
+7-10. Wait 30 minutes → retry
+
+**Use this preset if:**
+- You have a pay-as-you-go Anthropic API plan
+- Your rate limits reset within 30 minutes
+- You want faster failure detection
+
+### Subscription Preset
+
+The subscription preset is designed for Anthropic subscription plans with rolling 5-hour rate limit windows:
+
+```yaml
+pipeline:
+  retry_preset: subscription
+```
+
+**Configuration:**
+- **Initial interval**: 5 minutes
+- **Maximum interval**: 6 hours
+- **Backoff coefficient**: 2× (exponential)
+- **Maximum attempts**: 100
+- **Total timeout**: 8 hours per agent
+
+**Retry sequence:**
+1. Wait 5 minutes → retry
+2. Wait 10 minutes → retry
+3. Wait 20 minutes → retry
+4. Wait 40 minutes → retry
+5. Wait 80 minutes (1h 20m) → retry
+6. Wait 160 minutes (2h 40m) → retry
+7. Wait 320 minutes (5h 20m) → retry
+8. Wait 6 hours (capped) → retry
+9-100. Wait 6 hours → retry
+
+**Use this preset if:**
+- You have an Anthropic subscription plan (Pro, Team, or Enterprise)
+- Your rate limits reset on a rolling 5-hour window
+- You want Shannon to wait through rate limit windows automatically
+- You're willing to accept longer wall-clock time for higher success rates
+
+<Warning>
+Subscription plans have rolling rate limit windows that can extend up to 5+ hours. The default preset's 30-minute maximum backoff will exhaust retries before the window resets, causing the workflow to fail.
+</Warning>
+
+## Configuring Retry Strategy
+
+Add the `pipeline` section to your configuration file:
+
+```yaml
+# For subscription plans
+pipeline:
+  retry_preset: subscription
+```
+
+```yaml
+# For default behavior (can be omitted)
+pipeline:
+  retry_preset: default
+```
+
+## Rate Limit Handling
+
+Shannon handles rate limits intelligently:
+
+### Anthropic Rate Limits
+
+**Pay-as-you-go plans:**
+- Rate limits are per-minute or per-hour
+- Reset relatively quickly
+- Default preset is sufficient
+
+**Subscription plans:**
+- Rate limits use rolling 5-hour windows
+- Limits don't fully reset until 5+ hours after first request
+- Subscription preset is required
+
+### Error Types
+
+Shannon distinguishes between:
+
+**Retryable errors:**
+- HTTP 429 (Too Many Requests)
+- HTTP 503 (Service Unavailable)
+- Network timeouts
+- Transient API errors
+
+**Non-retryable errors:**
+- HTTP 401 (Unauthorized) - Invalid API key
+- HTTP 403 (Forbidden) - Insufficient permissions
+- Configuration errors
+- Schema validation failures
+- Security violations
+
+Non-retryable errors cause immediate workflow failure without retries.
+
+## Testing Mode
+
+For development and testing, you can use testing mode which has very aggressive retry settings:
+
+```bash
+./shannon start URL=https://example.com REPO=repo-name PIPELINE_TESTING=true
+```
+
+**Testing mode configuration:**
+- **Initial interval**: 10 seconds
+- **Maximum interval**: 10 seconds (no backoff)
+- **Maximum attempts**: 3
+- **Total timeout**: 10 minutes per agent
+
+Testing mode is not suitable for production use as it will quickly exhaust retries on rate limits.
+
+## Combining with Concurrency Control
+
+You can combine retry strategies with concurrency control to reduce rate limit pressure:
+
+```yaml
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 2  # Run 2 of 5 pipelines at a time
+```
+
+This combination:
+- Extends retry windows for subscription plans
+- Reduces concurrent API usage to prevent hitting rate limits
+- Increases wall-clock time but improves success rate
+
+See [Pipeline Settings](/configuration/pipeline-settings) for more on concurrency control.
+
+## Monitoring Retries
+
+You can monitor retry behavior through:
+
+### Worker Logs
+
+```bash
+./shannon logs
+```
+
+Look for messages like:
+```
+[WARN] Rate limit exceeded, backing off for 5 minutes...
+[INFO] Retrying agent execution (attempt 3/100)
+```
+
+### Temporal Web UI
+
+```bash
+open http://localhost:8233
+```
+
+The Temporal UI shows:
+- Retry attempts per activity
+- Wait times between retries
+- Current backoff interval
+- Time until next retry
+
+### Workflow Progress
+
+```bash
+./shannon query ID=shannon-1234567890
+```
+
+Query the workflow to see:
+- Current agent status
+- Elapsed time
+- Number of retries
+
+## Examples
+
+### Example 1: Default Configuration
+
+```yaml
+authentication:
+  login_type: form
+  login_url: "https://example.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "testpassword"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+
+# No pipeline section needed; default preset is used
+```
+
+### Example 2: Subscription Plan
+
+```yaml
+authentication:
+  login_type: form
+  login_url: "https://example.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "testpassword"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+
+pipeline:
+  retry_preset: subscription
+```
+
+### Example 3: Subscription with Concurrency Control
+
+```yaml
+authentication:
+  login_type: form
+  login_url: "https://example.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "testpassword"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 2  # Reduce concurrent load
+```
+
+## Troubleshooting
+
+### Workflow Fails with "Maximum attempts exceeded"
+
+**Problem**: Using default preset with a subscription plan
+
+**Solution**: Switch to subscription preset:
+```yaml
+pipeline:
+  retry_preset: subscription
+```
+
+### Rate limits still occurring frequently
+
+**Problem**: Too many concurrent pipelines
+
+**Solution**: Reduce concurrency:
+```yaml
+pipeline:
+  max_concurrent_pipelines: 2
+```
+
+### Retries taking too long
+
+**Problem**: Subscription preset used with pay-as-you-go plan
+
+**Solution**: Switch to default preset or omit pipeline section entirely
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Pipeline Settings" icon="gears" href="/configuration/pipeline-settings">
+    Configure concurrency and testing mode
+  </Card>
+  <Card title="YAML Config Reference" icon="file-code" href="/configuration/yaml-config">
+    Complete configuration options reference
+  </Card>
+</CardGroup>

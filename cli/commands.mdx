@@ -1,0 +1,194 @@
+---
+title: 'CLI Commands Overview'
+description: 'Complete reference for all Shannon CLI commands'
+icon: 'terminal'
+---
+
+Shannon provides a simple command-line interface for managing AI-powered penetration testing workflows. All commands use the `./shannon` script with KEY=value style arguments.
+
+## Quick Reference
+
+<CardGroup cols={2}>
+  <Card title="start" icon="play" href="/cli/start">
+    Start a new pentest workflow
+  </Card>
+  <Card title="workspaces" icon="folder" href="/cli/workspaces">
+    List all available workspaces
+  </Card>
+  <Card title="logs" icon="file-lines" href="/cli/logs">
+    View real-time workflow logs
+  </Card>
+  <Card title="query" icon="magnifying-glass" href="/cli/query">
+    Query workflow progress and state
+  </Card>
+  <Card title="stop" icon="stop" href="/cli/stop">
+    Stop all containers
+  </Card>
+</CardGroup>
+
+## Command Syntax
+
+All Shannon commands follow this pattern:
+
+```bash
+./shannon <command> [KEY=value ...]
+```
+
+### Available Commands
+
+| Command | Description | Common Usage |
+|---------|-------------|-------------|
+| `start` | Start a pentest workflow | `./shannon start URL=<url> REPO=<name>` |
+| `workspaces` | List all workspaces | `./shannon workspaces` |
+| `logs` | Tail workflow logs | `./shannon logs ID=<workflow-id>` |
+| `query` | Query workflow state | Via Temporal Web UI at http://localhost:8233 |
+| `stop` | Stop containers | `./shannon stop` or `./shannon stop CLEAN=true` |
+| `help` | Show help message | `./shannon help` |
+
+## Environment Setup
+
+Before running commands, ensure you have:
+
+1. **API Keys**: Set `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in `.env`
+2. **Docker**: Docker or Podman installed and running
+3. **Repository**: Target code in `./repos/<repo-name>/`
+
+```bash
+# Setup
+cp .env.example .env
+# Edit .env to add your API key
+
+# Clone target repository
+git clone https://github.com/org/repo.git ./repos/my-repo
+
+# Run pentest
+./shannon start URL=https://example.com REPO=my-repo
+```
+
+## Monitoring
+
+### Temporal Web UI
+
+Access the Temporal Web UI for detailed workflow monitoring:
+
+```bash
+http://localhost:8233
+```
+
+Features:
+- Real-time workflow progress
+- Query workflow state via `getProgress`
+- View workflow history and events
+- Inspect activity executions
+- Stack trace analysis for failures
+
+### Log Streaming
+
+Stream logs in real-time:
+
+```bash
+./shannon logs ID=example.com_shannon-1234567890
+```
+
+### Workspace Management
+
+List all workspaces and their status:
+
+```bash
+./shannon workspaces
+```
+
+## Output Locations
+
+Shannon generates output in multiple locations:
+
+| Output Type | Default Location | Configurable Via |
+|-------------|------------------|------------------|
+| Workflow logs | `./audit-logs/<workspace-id>/workflow.log` | `OUTPUT=<path>` |
+| Audit data | `./audit-logs/<workspace-id>/` | `OUTPUT=<path>` |
+| Deliverables | `./repos/<repo>/deliverables/` | Fixed |
+| Reports | Generated in both locations | - |
+
+## Common Patterns
+
+### Basic Workflow
+
+```bash
+# Start pentest
+./shannon start URL=https://app.example.com REPO=example-app
+
+# Monitor in separate terminal
+./shannon logs ID=app.example.com_shannon-1234567890
+
+# Check Temporal UI
+open http://localhost:8233
+```
+
+### Named Workspace
+
+```bash
+# Create/resume named workspace
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=q1-audit
+
+# List workspaces
+./shannon workspaces
+
+# Resume automatically (same command)
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=q1-audit
+```
+
+### Custom Configuration
+
+```bash
+# Use custom config and output directory
+./shannon start URL=https://example.com REPO=my-repo \
+  CONFIG=./configs/production.yaml \
+  OUTPUT=./security-reports
+```
+
+### Development Testing
+
+```bash
+# Fast iteration with minimal prompts
+./shannon start URL=https://example.com REPO=my-repo \
+  PIPELINE_TESTING=true
+
+# Force rebuild after code changes
+./shannon start URL=https://example.com REPO=my-repo \
+  REBUILD=true
+```
+
+## Error Handling
+
+Shannon provides clear error messages for common issues:
+
+```bash
+# Missing required parameters
+./shannon start URL=https://example.com
+# ERROR: URL and REPO are required
+
+# Repository not found
+./shannon start URL=https://example.com REPO=missing
+# ERROR: Repository not found at ./repos/missing
+
+# Missing API key
+./shannon start URL=https://example.com REPO=my-repo
+# ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Start Command" icon="play" href="/cli/start">
+    Learn all options for starting workflows
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/overview">
+    Explore YAML configuration options
+  </Card>
+  <Card title="Workspaces" icon="folder" href="/advanced/workspaces-resume">
+    Master workspace management and resume
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/guides/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>

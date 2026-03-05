@@ -1,0 +1,414 @@
+---
+title: './shannon stop'
+description: 'Stop Shannon containers and optionally clean data'
+icon: 'stop'
+---
+
+The `stop` command gracefully shuts down all Shannon containers. Optionally, it can remove all data including Docker volumes, workspaces, and cached images.
+
+## Basic Usage
+
+```bash
+# Stop containers (preserves data)
+./shannon stop
+
+# Stop and remove all data
+./shannon stop CLEAN=true
+```
+
+## Behavior
+
+### Default Stop (Data Preserved)
+
+```bash
+./shannon stop
+```
+
+**What happens:**
+1. Gracefully stops all running containers:
+   - `temporal` (Temporal server)
+   - `worker` (Shannon worker)
+   - `router` (claude-code-router, if using `ROUTER=true`)
+2. Preserves all data:
+   - Workflow state in Temporal database
+   - Audit logs in `./audit-logs/`
+   - Deliverables in `./repos/<repo>/deliverables/`
+   - Docker volumes (Temporal database, Elasticsearch)
+3. Allows resume from last state
+
+**Use when:**
+- Temporarily stopping Shannon
+- Switching between projects
+- System maintenance
+- Preserving workflow history for later resume
+
+### Clean Stop (Remove All Data)
+
+```bash
+./shannon stop CLEAN=true
+```
+
+<ParamField path="CLEAN" type="boolean" default="false">
+  Remove all data including Docker volumes
+  
+  **Deletes:**
+  - Temporal database (all workflow history)
+  - Elasticsearch data (log storage)
+  - Docker volumes
+  - Container state
+  
+  **Preserves:**
+  - Audit logs in `./audit-logs/`
+  - Deliverables in `./repos/<repo>/deliverables/`
+  - Source repositories in `./repos/`
+  - Configuration files
+</ParamField>
+
+<Warning>
+  `CLEAN=true` **permanently deletes** all Temporal workflow history. You cannot resume workflows after a clean stop.
+  
+  Audit logs and deliverables in the filesystem are **preserved**.
+</Warning>
+
+**Use when:**
+- Complete reset needed
+- Troubleshooting Temporal issues
+- Freeing disk space
+- Starting fresh environment
+
+## Examples
+
+### Standard Workflow
+
+```bash
+# Start pentest
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit
+
+# Stop for the day (preserves state)
+./shannon stop
+
+# Resume next day
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit
+# Continues from where it left off
+```
+
+### Clean Restart
+
+```bash
+# Stop and clean everything
+./shannon stop CLEAN=true
+
+# Start fresh
+./shannon start URL=https://example.com REPO=my-repo
+```
+
+### Development Testing
+
+```bash
+# Run quick test
+./shannon start URL=https://example.com REPO=my-repo PIPELINE_TESTING=true
+
+# Clean up after test
+./shannon stop CLEAN=true
+```
+
+## What Gets Preserved
+
+### Default Stop (`./shannon stop`)
+
+| Data Type | Location | Preserved? |
+|-----------|----------|------------|
+| Workflow state | Temporal DB | ✅ Yes |
+| Workflow history | Temporal DB | ✅ Yes |
+| Audit logs | `./audit-logs/` | ✅ Yes |
+| Deliverables | `./repos/<repo>/deliverables/` | ✅ Yes |
+| Docker volumes | Docker | ✅ Yes |
+| Configuration | `.env`, `./configs/` | ✅ Yes |
+| Source repositories | `./repos/` | ✅ Yes |
+
+### Clean Stop (`./shannon stop CLEAN=true`)
+
+| Data Type | Location | Preserved? |
+|-----------|----------|------------|
+| Workflow state | Temporal DB | ❌ Deleted |
+| Workflow history | Temporal DB | ❌ Deleted |
+| Audit logs | `./audit-logs/` | ✅ Yes |
+| Deliverables | `./repos/<repo>/deliverables/` | ✅ Yes |
+| Docker volumes | Docker | ❌ Deleted |
+| Configuration | `.env`, `./configs/` | ✅ Yes |
+| Source repositories | `./repos/` | ✅ Yes |
+
+## Container Management
+
+### Stopped Containers
+
+After `./shannon stop`, containers remain but are stopped:
+
+```bash
+# View stopped containers
+docker compose ps -a
+
+# Container status: Exited
+```
+
+**Benefits:**
+- Fast restart with `./shannon start`
+- No re-download of images
+- Preserved volume mounts
+
+### Removed Containers
+
+After `./shannon stop CLEAN=true`, containers are removed:
+
+```bash
+# View containers (none exist)
+docker compose ps -a
+# No Shannon containers
+```
+
+**Impact:**
+- Next `./shannon start` recreates containers
+- Volumes deleted (Temporal DB, Elasticsearch)
+- Images remain cached (no re-download needed)
+
+## Resume After Stop
+
+### Resume After Default Stop
+
+```bash
+# Stop containers
+./shannon stop
+
+# Resume workflow (same command as original start)
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit
+
+# Output:
+# Starting Shannon containers...
+# Temporal is ready!
+# Resuming workspace: audit
+# Skipping completed agents: pre-recon, recon
+# Continuing from: injection-vuln
+```
+
+**How it works:**
+1. Containers restart with preserved volumes
+2. Temporal DB contains complete workflow history
+3. Audit logs indicate completed agents
+4. Workflow resumes from last checkpoint
+
+### No Resume After Clean Stop
+
+```bash
+# Clean stop (deletes Temporal DB)
+./shannon stop CLEAN=true
+
+# Attempt resume
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit
+
+# Output:
+# Starting Shannon containers...
+# Temporal is ready!
+# Starting new workflow: audit_shannon-1234567890
+# Note: Previous workflow history deleted
+```
+
+**What happens:**
+- Temporal DB is empty (no workflow history)
+- Audit logs still exist but not linked to active workflow
+- New workflow starts from beginning
+- Can still access old audit logs and deliverables manually
+
+<Info>
+  Even after `CLEAN=true`, you can manually inspect previous audit logs in `./audit-logs/<workspace-id>/` and deliverables in `./repos/<repo>/deliverables/`.
+</Info>
+
+## Stopping Router
+
+If using multi-model routing (`ROUTER=true`), the router container is also stopped:
+
+```bash
+# Router runs with --profile router
+./shannon start URL=https://example.com REPO=my-repo ROUTER=true
+
+# Stop all containers including router
+./shannon stop
+# or
+./shannon stop CLEAN=true
+```
+
+Both commands stop the `router` container using `--profile router`.
+
+## Manual Container Management
+
+For advanced users, you can manage containers directly:
+
+### View Running Containers
+
+```bash
+docker compose ps
+```
+
+### Stop Specific Container
+
+```bash
+# Stop worker only
+docker compose stop worker
+
+# Stop router only
+docker compose --profile router stop router
+```
+
+### Remove Containers Without Volumes
+
+```bash
+# Remove containers but keep volumes
+docker compose down
+```
+
+### Remove Volumes Manually
+
+```bash
+# Remove all volumes
+docker compose down -v
+
+# Remove specific volume
+docker volume rm shannon_temporal-db
+```
+
+## Disk Space Management
+
+Shannon containers and volumes can consume significant disk space:
+
+### Check Disk Usage
+
+```bash
+# View Docker disk usage
+docker system df
+
+# View Shannon volumes
+docker volume ls | grep shannon
+```
+
+### Free Disk Space
+
+```bash
+# Clean stop (removes volumes)
+./shannon stop CLEAN=true
+
+# Remove unused Docker data
+docker system prune -a --volumes
+```
+
+<Warning>
+  `docker system prune -a --volumes` removes **all** unused Docker data, not just Shannon. Use with caution if you have other Docker projects.
+</Warning>
+
+## Troubleshooting
+
+### Containers Won't Stop
+
+```bash
+# Force stop containers
+docker compose down --timeout 1
+
+# Force remove if still stuck
+docker compose rm -f
+```
+
+### Volumes Won't Delete
+
+```bash
+# Ensure containers are stopped
+./shannon stop
+
+# Manually remove volumes
+docker volume rm shannon_temporal-db shannon_elasticsearch
+
+# Or force clean
+./shannon stop CLEAN=true
+```
+
+### "Container Already Stopped" Error
+
+This is harmless:
+
+```bash
+./shannon stop
+# Warning: Container already stopped
+# ... (continued success)
+```
+
+Shannon checks container state before stopping. If already stopped, the command succeeds.
+
+### Temporal Not Healthy After Restart
+
+```bash
+# Stop and clean
+./shannon stop CLEAN=true
+
+# Restart with rebuild
+./shannon start URL=https://example.com REPO=my-repo REBUILD=true
+```
+
+## Best Practices
+
+### Daily Workflow
+
+```bash
+# End of day
+./shannon stop  # Preserves state
+
+# Next morning
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=<name>
+```
+
+### Project Switching
+
+```bash
+# Stop current project
+./shannon stop
+
+# Start different project
+./shannon start URL=https://different.com REPO=other-repo
+```
+
+### Development Testing
+
+```bash
+# Test iteration
+./shannon start URL=https://example.com REPO=my-repo PIPELINE_TESTING=true
+
+# Clean up after each test
+./shannon stop CLEAN=true
+```
+
+### Pre-Production Validation
+
+```bash
+# Full audit
+./shannon start URL=https://staging.example.com REPO=my-repo \
+  CONFIG=./configs/staging.yaml
+
+# Preserve state until results reviewed
+./shannon stop
+
+# After review, clean up
+./shannon stop CLEAN=true
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Start Command" icon="play" href="/cli/start">
+    Learn how to start workflows
+  </Card>
+  <Card title="Workspaces" icon="folder" href="/cli/workspaces">
+    Manage workspaces and resume
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/guides/troubleshooting">
+    Common issues and solutions
+  </Card>
+  <Card title="Platform Setup" icon="docker" href="/advanced/platform-specific">
+    Docker and Podman configuration
+  </Card>
+</CardGroup>

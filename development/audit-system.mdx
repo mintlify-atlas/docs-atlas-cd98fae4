@@ -1,0 +1,697 @@
+---
+title: Audit System
+description: Crash-safe audit logging, metrics tracking, and deliverables management
+---
+
+Shannon's audit system provides comprehensive, crash-safe logging of all agent executions, including metrics, deliverables, and workflow progress. The system is designed for parallel agent execution and supports resume across workflow restarts.
+
+## Architecture
+
+The audit system consists of three main components:
+
+1. **AuditSession** - Main facade coordinating logging and metrics
+2. **WorkflowLogger** - Unified human-readable workflow logs
+3. **MetricsTracker** - Structured metrics in `session.json`
+
+```
+audit-logs/
+└── {hostname}_{sessionId}/
+    ├── session.json           # Structured metrics (machine-readable)
+    ├── workflow.log           # Unified workflow log (human-readable)
+    ├── prompts/               # Prompt snapshots
+    │   ├── pre-recon.txt
+    │   ├── recon.txt
+    │   └── ...
+    ├── agents/                # Per-agent JSON logs
+    │   ├── pre-recon-1.jsonl
+    │   ├── recon-1.jsonl
+    │   └── ...
+    └── deliverables/          # Copied deliverables
+        ├── code_analysis_deliverable.md
+        ├── recon_deliverable.md
+        └── ...
+```
+
+## AuditSession
+
+The `AuditSession` class is the main entry point for audit logging.
+
+### Initialization and Lifecycle
+
+```typescript
+// src/audit/audit-session.ts:29-66
+export class AuditSession {
+  private sessionMetadata: SessionMetadata;
+  private sessionId: string;
+  private metricsTracker: MetricsTracker;
+  private workflowLogger: WorkflowLogger;
+  private currentLogger: AgentLogger | null = null;
+  private currentAgentName: string | null = null;
+  private initialized: boolean = false;
+
+  constructor(sessionMetadata: SessionMetadata) {
+    this.sessionMetadata = sessionMetadata;
+    this.sessionId = sessionMetadata.id;
+
+    // Validate required fields
+    if (!this.sessionId) {
+      throw new PentestError(
+        'sessionMetadata.id is required',
+        'config', false, { field: 'sessionMetadata.id' },
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      );
+    }
+
+    // Components
+    this.metricsTracker = new MetricsTracker(sessionMetadata);
+    this.workflowLogger = new WorkflowLogger(sessionMetadata);
+  }
+
+  async initialize(workflowId?: string): Promise<void> {
+    if (this.initialized) return;
+
+    // Create directory structure
+    await initializeAuditStructure(this.sessionMetadata);
+
+    // Initialize components
+    await this.metricsTracker.initialize(workflowId);
+    await this.workflowLogger.initialize();
+
+    this.initialized = true;
+  }
+}
+```
+
+From `src/audit/audit-session.ts:29-89`
+
+**Parallel Safety:**
+```typescript
+// AuditSession is NOT stored in the DI container (src/audit/audit-session.ts:35-36)
+// Each agent execution receives its own AuditSession instance
+// because AuditSession uses instance state (currentAgentName) that
+// cannot be shared across parallel agents.
+
+// Usage in activities (src/temporal/activities.ts:126-130)
+const auditSession = new AuditSession(sessionMetadata);
+await auditSession.initialize(workflowId);
+await container.agentExecution.executeOrThrow(
+  agentName, input, auditSession, logger
+);
+```
+
+### Agent Execution Logging
+
+```typescript
+// src/audit/audit-session.ts:101-131
+async startAgent(
+  agentName: string,
+  promptContent: string,
+  attemptNumber: number = 1
+): Promise<void> {
+  await this.ensureInitialized();
+
+  // 1. Save prompt snapshot (only on first attempt)
+  if (attemptNumber === 1) {
+    await AgentLogger.savePrompt(this.sessionMetadata, agentName, promptContent);
+  }
+
+  // 2. Create and initialize the per-agent logger
+  this.currentAgentName = agentName;
+  this.currentLogger = new AgentLogger(this.sessionMetadata, agentName, attemptNumber);
+  await this.currentLogger.initialize();
+
+  // 3. Start metrics timer
+  this.metricsTracker.startAgent(agentName, attemptNumber);
+
+  // 4. Log start event to both agent log and workflow log
+  await this.currentLogger.logEvent('agent_start', {
+    agentName,
+    attemptNumber,
+    timestamp: formatTimestamp(),
+  });
+
+  await this.workflowLogger.logAgent(agentName, 'start', { attemptNumber });
+}
+```
+
+From `src/audit/audit-session.ts:101-131`
+
+### Mutex-Protected Metrics Updates
+
+```typescript
+// src/audit/audit-session.ts:176-212
+async endAgent(agentName: string, result: AgentEndResult): Promise<void> {
+  // 1. Finalize agent log and close the stream
+  if (this.currentLogger) {
+    await this.currentLogger.logEvent('agent_end', {
+      agentName,
+      success: result.success,
+      duration_ms: result.duration_ms,
+      cost_usd: result.cost_usd,
+      timestamp: formatTimestamp(),
+    });
+
+    await this.currentLogger.close();
+    this.currentLogger = null;
+  }
+
+  // 2. Log completion to the unified workflow log
+  this.currentAgentName = null;
+  const agentLogDetails: AgentLogDetails = {
+    attemptNumber: result.attemptNumber,
+    duration_ms: result.duration_ms,
+    cost_usd: result.cost_usd,
+    success: result.success,
+    ...(result.error !== undefined && { error: result.error }),
+  };
+  await this.workflowLogger.logAgent(agentName, 'end', agentLogDetails);
+
+  // 3. Acquire mutex before touching session.json
+  const unlock = await sessionMutex.lock(this.sessionId);
+  try {
+    // 4. Reload-then-write inside mutex to prevent lost updates during parallel phases
+    await this.metricsTracker.reload();
+    await this.metricsTracker.endAgent(agentName, result);
+  } finally {
+    unlock();
+  }
+}
+```
+
+From `src/audit/audit-session.ts:176-212`
+
+**Concurrency Control:**
+The `SessionMutex` ensures only one agent at a time writes to `session.json`:
+
+```typescript
+// src/audit/audit-session.ts:24-25
+const sessionMutex = new SessionMutex();
+
+// Usage pattern:
+const unlock = await sessionMutex.lock(this.sessionId);
+try {
+  await this.metricsTracker.reload();  // Reload from disk
+  await this.metricsTracker.endAgent(agentName, result);  // Modify + write
+} finally {
+  unlock();
+}
+```
+
+From `src/audit/audit-session.ts:24-25, 204-211`
+
+## WorkflowLogger
+
+The `WorkflowLogger` provides a unified, human-readable log file optimized for `tail -f` viewing.
+
+### Log Structure
+
+```typescript
+// src/audit/workflow-logger.ts:44-70
+export class WorkflowLogger {
+  private readonly sessionMetadata: SessionMetadata;
+  private readonly logStream: LogStream;
+
+  constructor(sessionMetadata: SessionMetadata) {
+    this.sessionMetadata = sessionMetadata;
+    const logPath = generateWorkflowLogPath(sessionMetadata);
+    this.logStream = new LogStream(logPath);
+  }
+
+  async initialize(): Promise<void> {
+    if (this.logStream.isOpen) return;
+
+    await this.logStream.open();
+
+    // Write header only if file is new (empty)
+    const stats = await fs.stat(this.logStream.path).catch(() => null);
+    if (!stats || stats.size === 0) {
+      await this.writeHeader();
+    }
+  }
+}
+```
+
+From `src/audit/workflow-logger.ts:44-70`
+
+### Log Format
+
+```
+================================================================================
+Shannon Pentest - Workflow Log
+================================================================================
+Workflow ID: example-com-20240315-120000
+Target URL:  https://app.example.com
+Started:     2024-03-15 12:00:00
+================================================================================
+
+[2024-03-15 12:00:05] [PHASE] Starting: pre-recon
+[2024-03-15 12:00:06] [AGENT] pre-recon: Starting (attempt 1)
+[2024-03-15 12:00:08] [pre-recon] [TOOL] Read: src/api/user.ts
+[2024-03-15 12:00:10] [pre-recon] [TOOL] Grep: "password"
+[2024-03-15 12:00:12] [pre-recon] [LLM] Turn 1: I've analyzed the codebase...
+[2024-03-15 12:05:30] [AGENT] pre-recon: Completed (5m24s $0.45)
+[2024-03-15 12:05:30] [PHASE] Completed: pre-recon
+
+[2024-03-15 12:05:31] [PHASE] Starting: recon
+[2024-03-15 12:05:32] [AGENT] recon: Starting (attempt 1)
+[2024-03-15 12:05:35] [recon] [TOOL] mcp__playwright__browser_navigate: https://app.example.com
+...
+```
+
+### Logging Methods
+
+```typescript
+// src/audit/workflow-logger.ts:128-183
+async logPhase(phase: string, event: 'start' | 'complete'): Promise<void> {
+  await this.ensureInitialized();
+
+  const action = event === 'start' ? 'Starting' : 'Completed';
+  const line = `[${this.formatLogTime()}] [PHASE] ${action}: ${phase}\n`;
+
+  // Add blank line before phase start for readability
+  if (event === 'start') {
+    await this.logStream.write('\n');
+  }
+
+  await this.logStream.write(line);
+}
+
+async logAgent(
+  agentName: string,
+  event: 'start' | 'end',
+  details?: AgentLogDetails
+): Promise<void> {
+  await this.ensureInitialized();
+
+  let message: string;
+
+  if (event === 'start') {
+    const attempt = details?.attemptNumber ?? 1;
+    message = `${agentName}: Starting (attempt ${attempt})`;
+  } else {
+    const parts: string[] = [agentName + ':'];
+
+    if (details?.success === false) {
+      parts.push('Failed');
+      if (details?.error) {
+        parts.push(`- ${details.error}`);
+      }
+    } else {
+      parts.push('Completed');
+    }
+
+    if (details?.duration_ms !== undefined) {
+      parts.push(`(${formatDuration(details.duration_ms)}`);  // "5m24s"
+      if (details?.cost_usd !== undefined) {
+        parts.push(`$${details.cost_usd.toFixed(2)})`);
+      } else {
+        parts.push(')');
+      }
+    }
+
+    message = parts.join(' ');
+  }
+
+  const line = `[${this.formatLogTime()}] [AGENT] ${message}\n`;
+  await this.logStream.write(line);
+}
+```
+
+From `src/audit/workflow-logger.ts:128-183`
+
+### Tool Logging with Smart Formatting
+
+```typescript
+// src/audit/workflow-logger.ts:215-288
+private formatToolParams(toolName: string, params: unknown): string {
+  if (!params || typeof params !== 'object') return '';
+
+  const p = params as Record<string, unknown>;
+
+  // Tool-specific formatting for common tools
+  switch (toolName) {
+    case 'Bash':
+      if (p.command) {
+        return this.truncate(String(p.command).replace(/\n/g, ' '), 100);
+      }
+      break;
+    case 'Read':
+      if (p.file_path) return String(p.file_path);
+      break;
+    case 'Grep':
+      if (p.pattern) {
+        const path = p.path ? ` in ${p.path}` : '';
+        return `"${this.truncate(String(p.pattern), 50)}"${path}`;
+      }
+      break;
+    case 'mcp__playwright__browser_navigate':
+      if (p.url) return String(p.url);
+      break;
+    case 'mcp__playwright__browser_type':
+      if (p.selector) {
+        const text = p.text ? `: "${this.truncate(String(p.text), 30)}"` : '';
+        return `${this.truncate(String(p.selector), 40)}${text}`;
+      }
+      break;
+  }
+
+  // Default: show first string-valued param truncated
+  for (const [key, val] of Object.entries(p)) {
+    if (typeof val === 'string' && val.length > 0) {
+      return `${key}=${this.truncate(val, 60)}`;
+    }
+  }
+
+  return '';
+}
+
+async logToolStart(agentName: string, toolName: string, parameters: unknown): Promise<void> {
+  await this.ensureInitialized();
+
+  const params = this.formatToolParams(toolName, parameters);
+  const paramStr = params ? `: ${params}` : '';
+  const line = `[${this.formatLogTime()}] [${agentName}] [TOOL] ${toolName}${paramStr}\n`;
+  await this.logStream.write(line);
+}
+```
+
+From `src/audit/workflow-logger.ts:215-300`
+
+### Workflow Completion Summary
+
+```typescript
+// src/audit/workflow-logger.ts:335-369
+async logWorkflowComplete(summary: WorkflowSummary): Promise<void> {
+  await this.ensureInitialized();
+
+  const status = summary.status === 'completed' ? 'COMPLETED' : 'FAILED';
+
+  await this.logStream.write('\n');
+  await this.logStream.write(`================================================================================\n`);
+  await this.logStream.write(`Workflow ${status}\n`);
+  await this.logStream.write(`────────────────────────────────────────\n`);
+  await this.logStream.write(`Workflow ID: ${this.sessionMetadata.id}\n`);
+  await this.logStream.write(`Status:      ${summary.status}\n`);
+  await this.logStream.write(`Duration:    ${formatDuration(summary.totalDurationMs)}\n`);
+  await this.logStream.write(`Total Cost:  $${summary.totalCostUsd.toFixed(4)}\n`);
+  await this.logStream.write(`Agents:      ${summary.completedAgents.length} completed\n`);
+
+  if (summary.error) {
+    await this.logStream.write(this.formatErrorBlock(summary.error));
+  }
+
+  await this.logStream.write(`\n`);
+  await this.logStream.write(`Agent Breakdown:\n`);
+
+  for (const agentName of summary.completedAgents) {
+    const metrics = summary.agentMetrics[agentName];
+    if (metrics) {
+      const duration = formatDuration(metrics.durationMs);
+      const cost = metrics.costUsd !== null ? `$${metrics.costUsd.toFixed(4)}` : 'N/A';
+      await this.logStream.write(`  - ${agentName} (${duration}, ${cost})\n`);
+    }
+  }
+
+  await this.logStream.write(`================================================================================\n`);
+}
+```
+
+From `src/audit/workflow-logger.ts:335-369`
+
+## LogStream
+
+The `LogStream` class provides a reusable stream primitive for append-only logging.
+
+```typescript
+// src/audit/log-stream.ts:22-127
+export class LogStream {
+  private readonly filePath: string;
+  private stream: fs.WriteStream | null = null;
+  private _isOpen: boolean = false;
+
+  constructor(filePath: string) {
+    this.filePath = filePath;
+  }
+
+  async open(): Promise<void> {
+    if (this._isOpen) return;
+
+    // Ensure parent directory exists
+    await ensureDirectory(path.dirname(this.filePath));
+
+    // Create write stream in append mode
+    this.stream = fs.createWriteStream(this.filePath, {
+      flags: 'a',
+      encoding: 'utf8',
+      autoClose: true,
+    });
+
+    // Handle stream errors to prevent crashes
+    this.stream.on('error', (err) => {
+      console.error(`LogStream error for ${this.filePath}:`, err.message);
+      this._isOpen = false;
+    });
+
+    this._isOpen = true;
+  }
+
+  async write(text: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this._isOpen || !this.stream) {
+        reject(new Error('LogStream not open'));
+        return;
+      }
+
+      const stream = this.stream;
+      let drainHandler: (() => void) | null = null;
+
+      const cleanup = () => {
+        if (drainHandler) {
+          stream.removeListener('drain', drainHandler);
+          drainHandler = null;
+        }
+      };
+
+      // Write with backpressure handling
+      const needsDrain = !stream.write(text, 'utf8', (error) => {
+        cleanup();
+        if (error) {
+          reject(error);
+        } else if (!needsDrain) {
+          resolve();
+        }
+      });
+
+      if (needsDrain) {
+        drainHandler = () => {
+          cleanup();
+          resolve();
+        };
+        stream.once('drain', drainHandler);
+      }
+    });
+  }
+
+  async close(): Promise<void> {
+    if (!this._isOpen || !this.stream) return;
+
+    return new Promise((resolve) => {
+      this.stream!.end(() => {
+        this._isOpen = false;
+        this.stream = null;
+        resolve();
+      });
+    });
+  }
+}
+```
+
+From `src/audit/log-stream.ts:22-127`
+
+**Design Benefits:**
+- Handles backpressure (waits for 'drain' event when buffer fills)
+- Error handling prevents crashes
+- Clean separation of concerns (used by both WorkflowLogger and AgentLogger)
+
+## MetricsTracker
+
+The `MetricsTracker` manages structured metrics in `session.json`.
+
+### Session.json Structure
+
+```json
+{
+  "session": {
+    "id": "example-com-20240315-120000",
+    "webUrl": "https://app.example.com",
+    "repoPath": "/home/shannon/repos/app",
+    "status": "completed",
+    "originalWorkflowId": "shannon-workflow-abc123",
+    "resumeAttempts": [
+      {
+        "workflowId": "shannon-workflow-def456",
+        "timestamp": "2024-03-15T14:30:00Z",
+        "terminatedWorkflows": ["shannon-workflow-abc123"],
+        "checkpoint": "a1b2c3d4e5f6"
+      }
+    ]
+  },
+  "metrics": {
+    "total_duration_ms": 1234567,
+    "total_cost_usd": 5.67,
+    "agents": {
+      "pre-recon": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "start_time": "2024-03-15T12:00:05Z",
+            "end_time": "2024-03-15T12:05:29Z",
+            "duration_ms": 324000,
+            "cost_usd": 0.45,
+            "model": "claude-sonnet-4-20250514"
+          }
+        ],
+        "final_duration_ms": 324000,
+        "total_cost_usd": 0.45,
+        "checkpoint": "a1b2c3d4e5f6"
+      },
+      "recon": {
+        "status": "success",
+        "attempts": [/* ... */],
+        "final_duration_ms": 456000,
+        "total_cost_usd": 0.78,
+        "checkpoint": "b2c3d4e5f6a7"
+      }
+      // ... more agents
+    }
+  }
+}
+```
+
+### Reload-Modify-Write Pattern
+
+```typescript
+// Mutex-protected update pattern (src/audit/audit-session.ts:204-211)
+const unlock = await sessionMutex.lock(this.sessionId);
+try {
+  // Reload from disk to get latest state
+  await this.metricsTracker.reload();
+  
+  // Modify in-memory state
+  await this.metricsTracker.endAgent(agentName, result);
+  // endAgent() writes to disk at end
+} finally {
+  unlock();
+}
+```
+
+From `src/audit/audit-session.ts:204-211`
+
+**Why Reload Inside Mutex:**
+During parallel agent execution, multiple agents may complete simultaneously. Without reload, later updates would overwrite earlier ones. The reload ensures we start with the latest disk state.
+
+## Resume Support
+
+The audit system tracks git checkpoints and agent completion to support resuming.
+
+### Recording Resume Attempts
+
+```typescript
+// src/audit/audit-session.ts:269-283
+async addResumeAttempt(
+  workflowId: string,
+  terminatedWorkflows: string[],
+  checkpointHash?: string
+): Promise<void> {
+  await this.ensureInitialized();
+
+  const unlock = await sessionMutex.lock(this.sessionId);
+  try {
+    await this.metricsTracker.reload();
+    await this.metricsTracker.addResumeAttempt(workflowId, terminatedWorkflows, checkpointHash);
+  } finally {
+    unlock();
+  }
+}
+```
+
+From `src/audit/audit-session.ts:269-283`
+
+### Resume Header in Workflow Log
+
+```typescript
+// src/audit/workflow-logger.ts:92-115
+async logResumeHeader(resumeInfo: {
+  previousWorkflowId: string;
+  newWorkflowId: string;
+  checkpointHash: string;
+  completedAgents: string[];
+}): Promise<void> {
+  await this.ensureInitialized();
+
+  const header = [
+    ``,
+    `================================================================================`,
+    `RESUMED`,
+    `================================================================================`,
+    `Previous Workflow ID: ${resumeInfo.previousWorkflowId}`,
+    `New Workflow ID:      ${resumeInfo.newWorkflowId}`,
+    `Resumed At:           ${formatTimestamp()}`,
+    `Checkpoint:           ${resumeInfo.checkpointHash}`,
+    `Completed:            ${resumeInfo.completedAgents.length} agents (${resumeInfo.completedAgents.join(', ')})`,
+    `================================================================================`,
+    ``,
+  ].join('\n');
+
+  return this.logStream.write(header);
+}
+```
+
+From `src/audit/workflow-logger.ts:92-115`
+
+## Deliverables Management
+
+Deliverables are copied from the target repository to the audit-logs directory.
+
+```typescript
+// src/audit/utils.ts
+export async function copyDeliverablesToAudit(
+  sessionMetadata: SessionMetadata,
+  repoPath: string
+): Promise<void> {
+  const deliverablesDir = path.join(repoPath, 'deliverables');
+  const auditDir = getAuditLogPath(sessionMetadata);
+  const targetDir = path.join(auditDir, 'deliverables');
+
+  if (!(await fs.pathExists(deliverablesDir))) {
+    return;  // No deliverables to copy
+  }
+
+  await fs.ensureDir(targetDir);
+  await fs.copy(deliverablesDir, targetDir, { overwrite: true });
+}
+```
+
+**When Called:**
+In `logWorkflowComplete` activity after workflow finishes:
+
+```typescript
+// src/temporal/activities.ts:650-657
+try {
+  await copyDeliverablesToAudit(sessionMetadata, repoPath);
+} catch (copyErr) {
+  logger.error('Failed to copy deliverables to audit-logs', {
+    error: copyErr instanceof Error ? copyErr.message : String(copyErr),
+  });
+}
+```
+
+From `src/temporal/activities.ts:650-657`
+
+## Related Documentation
+
+- [Architecture Overview](/development/architecture-overview) - System design patterns
+- [Core Modules](/development/core-modules) - Service layer details
+- [Temporal Workflow](/development/temporal-workflow) - Orchestration layer
+- [MCP Integration](/development/mcp-integration) - Tool infrastructure

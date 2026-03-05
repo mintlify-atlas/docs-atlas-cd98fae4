@@ -1,0 +1,457 @@
+---
+title: Modifying Prompts
+description: Guide to prompt engineering and testing for Shannon agents
+---
+
+Shannon's agents are powered by prompt templates that define their objectives, methodology, and expected outputs. This guide covers how to modify and test prompts effectively.
+
+## Prompt Template Structure
+
+Prompt templates are text files in the `prompts/` directory, named to match the `promptTemplate` field in agent definitions.
+
+### Directory Layout
+
+```
+prompts/
+├── pre-recon-code.txt         # Pre-reconnaissance agent
+├── recon.txt                   # Reconnaissance agent
+├── vuln-injection.txt          # Injection vulnerability agent
+├── vuln-xss.txt               # XSS vulnerability agent
+├── vuln-auth.txt              # Auth vulnerability agent
+├── vuln-authz.txt             # Authz vulnerability agent
+├── vuln-ssrf.txt              # SSRF vulnerability agent
+├── exploit-injection.txt       # Injection exploitation agent
+├── exploit-xss.txt            # XSS exploitation agent
+├── exploit-auth.txt           # Auth exploitation agent
+├── exploit-authz.txt          # Authz exploitation agent
+├── exploit-ssrf.txt           # SSRF exploitation agent
+├── report-executive.txt        # Report generation agent
+└── shared/
+    ├── login-instructions.txt  # Reusable login flow instructions
+    └── tool-guidelines.txt     # Shared tool usage guidance
+```
+
+## Variable Substitution
+
+Prompt templates support variable placeholders that are replaced at runtime by `PromptManager`.
+
+### Available Variables
+
+<ParamField path="{{TARGET_URL}}" type="string" required>
+  The web application URL being tested (e.g., `https://app.example.com`)
+</ParamField>
+
+<ParamField path="{{CONFIG_CONTEXT}}" type="string">
+  YAML configuration content if a config file was provided. Empty string if no config.
+</ParamField>
+
+<ParamField path="{{LOGIN_INSTRUCTIONS}}" type="string">
+  Login flow instructions from `prompts/shared/login-instructions.txt` if authentication is configured. Empty if no auth.
+</ParamField>
+
+### Variable Usage Example
+
+```markdown prompts/vuln-injection.txt
+You are analyzing {{TARGET_URL}} for injection vulnerabilities.
+
+{{LOGIN_INSTRUCTIONS}}
+
+{{CONFIG_CONTEXT}}
+
+Your objective is to identify SQL injection, NoSQL injection, and command injection vulnerabilities in this application.
+```
+
+At runtime, this becomes:
+
+```markdown
+You are analyzing https://app.example.com for injection vulnerabilities.
+
+# Login Instructions
+1. Navigate to https://app.example.com/login
+2. Type $username into the email field
+3. Type $password into the password field
+4. Click the 'Sign In' button
+
+authentication:
+  login_type: form
+  credentials:
+    username: test@example.com
+    password: TestPass123!
+
+Your objective is to identify SQL injection, NoSQL injection, and command injection vulnerabilities in this application.
+```
+
+## Shared Partials
+
+Reusable content can be extracted to `prompts/shared/` and included via the `PromptManager`.
+
+### Login Instructions Partial
+
+The `login-instructions.txt` partial is automatically included when authentication is configured:
+
+```typescript src/services/prompt-manager.ts
+const loginInstructions = config?.authentication
+  ? await loadPartial('login-instructions.txt')
+  : '';
+```
+
+This supports all login types:
+- **Form authentication**: Step-by-step browser instructions with variable substitution
+- **SSO**: OAuth/SAML flow guidance
+- **API authentication**: Header/token instructions
+- **Basic auth**: HTTP basic authentication
+
+### Creating Custom Partials
+
+To add a new shared partial:
+
+1. Create file in `prompts/shared/`:
+   ```bash
+   touch prompts/shared/api-testing-guide.txt
+   ```
+
+2. Load it in `PromptManager` (`src/services/prompt-manager.ts`):
+   ```typescript
+   const apiGuide = await loadPartial('api-testing-guide.txt');
+   ```
+
+3. Substitute into templates:
+   ```typescript
+   content = content.replace('{{API_TESTING_GUIDE}}', apiGuide);
+   ```
+
+## Prompt Engineering Best Practices
+
+### Structure Your Prompts
+
+<Steps>
+  <Step title="Define Role and Context">
+    Start with who the agent is and what it's analyzing:
+    ```markdown
+    You are an expert security researcher performing white-box penetration testing on {{TARGET_URL}}.
+    You have full access to the source code repository.
+    ```
+  </Step>
+
+  <Step title="State the Objective">
+    Be specific about what success looks like:
+    ```markdown
+    Your objective is to identify and document all SQL injection vulnerabilities.
+    You must prove each finding by executing a successful exploit.
+    ```
+  </Step>
+
+  <Step title="Provide Methodology">
+    Give clear steps to follow:
+    ```markdown
+    ## Analysis Steps
+    1. Review the recon deliverable for database-connected endpoints
+    2. Analyze source code for unsafe query construction
+    3. Trace user input to SQL query execution
+    4. Test each suspected endpoint with injection payloads
+    5. Document successful exploits with proof-of-concept
+    ```
+  </Step>
+
+  <Step title="Show Examples">
+    Include sample vulnerable code and exploits:
+    ```markdown
+    ## Example Vulnerable Pattern
+    ```javascript
+    const query = `SELECT * FROM users WHERE id = ${req.params.id}`;
+    db.query(query);
+    ```
+
+    This is vulnerable because user input is directly concatenated into the SQL query.
+    ```
+  </Step>
+
+  <Step title="Define Output Format">
+    Specify exactly what to save:
+    ```markdown
+    ## Deliverable Format
+    Save your findings to `injection_analysis_deliverable.md` with this structure:
+
+    # Injection Vulnerability Analysis
+
+    ## Summary
+    - Total endpoints analyzed: X
+    - Vulnerable endpoints found: Y
+
+    ## Findings
+    ### Finding 1: SQL Injection in User Search
+    **Endpoint**: POST /api/users/search
+    **Parameter**: query
+    **Payload**: `' OR '1'='1`
+    **Evidence**: [screenshot or response]
+    ```
+  </Step>
+</Steps>
+
+### Writing Effective Prompts
+
+<CardGroup cols={2}>
+  <Card title="Be Specific" icon="crosshairs">
+    Define exactly what to test, not just "find vulnerabilities"
+  </Card>
+  <Card title="Provide Context" icon="book-open">
+    Explain why certain patterns are vulnerable
+  </Card>
+  <Card title="Use Examples" icon="code">
+    Show vulnerable code patterns and successful exploits
+  </Card>
+  <Card title="Structure Output" icon="list">
+    Request consistent markdown formatting for deliverables
+  </Card>
+</CardGroup>
+
+## Testing Prompts
+
+### Fast Iteration with PIPELINE_TESTING
+
+Use `PIPELINE_TESTING=true` to test prompt changes quickly:
+
+```bash
+./shannon start URL=https://test-app.com REPO=test-repo PIPELINE_TESTING=true
+```
+
+This enables:
+- **Shorter retries**: 10s intervals instead of 5min
+- **Reduced timeouts**: 30min instead of 2hrs
+- **Faster feedback**: Fail fast on errors
+- **Tool graceful degradation**: Skip nmap/subfinder/whatweb if missing
+
+### Testing Workflow
+
+<Steps>
+  <Step title="Make Prompt Changes">
+    Edit the prompt template in `prompts/`:
+    ```bash
+    nano prompts/vuln-injection.txt
+    ```
+  </Step>
+
+  <Step title="Rebuild">
+    Rebuild TypeScript code (prompts are loaded at runtime, but rebuild ensures consistency):
+    ```bash
+    npm run build
+    ```
+  </Step>
+
+  <Step title="Run with Testing Mode">
+    Start a test run:
+    ```bash
+    ./shannon start \
+      URL=https://test-app.com \
+      REPO=test-repo \
+      PIPELINE_TESTING=true
+    ```
+  </Step>
+
+  <Step title="Monitor Execution">
+    Watch real-time logs:
+    ```bash
+    ./shannon logs
+    ```
+  </Step>
+
+  <Step title="Review Deliverables">
+    Check output quality:
+    ```bash
+    cat ./repos/test-repo/deliverables/injection_analysis_deliverable.md
+    ```
+  </Step>
+
+  <Step title="Iterate">
+    Refine prompts based on output quality and repeat.
+  </Step>
+</Steps>
+
+## Common Prompt Patterns
+
+### Vulnerability Analysis Pattern
+
+```markdown
+# [Vulnerability Type] Analysis Agent
+
+You are analyzing {{TARGET_URL}} for [specific vulnerability type].
+
+## Prerequisites
+Review these deliverables from previous agents:
+- `recon_deliverable.md` - Attack surface map
+- `code_analysis_deliverable.md` - Source code insights
+
+## Objective
+Identify [specific vulnerability patterns] that could lead to [impact].
+
+## Analysis Methodology
+1. Source code review for [dangerous patterns]
+2. Data flow analysis from user input to [sink]
+3. Live testing on running application
+4. Document findings with confidence levels
+
+## Deliverable
+Save to `[vuln_type]_analysis_deliverable.md`:
+
+### Format
+# [Vulnerability Type] Analysis
+
+## High Confidence Findings
+[Findings with confirmed vulnerable code paths]
+
+## Medium Confidence Findings  
+[Findings requiring exploitation to confirm]
+
+## Testing Queue
+For each high/medium confidence finding, provide:
+- Endpoint URL
+- Parameter name
+- Suggested exploit payload
+- Expected impact
+```
+
+### Exploitation Pattern
+
+```markdown
+# [Vulnerability Type] Exploitation Agent
+
+You are attempting to exploit the vulnerabilities identified in `[vuln_type]_analysis_deliverable.md`.
+
+## Objective
+Prove each finding is exploitable through successful attack execution.
+
+## "No Exploit, No Report" Policy
+Only findings you can successfully exploit should be documented.
+If you cannot prove exploitation, discard the finding as a false positive.
+
+## Exploitation Workflow
+For each finding in the testing queue:
+1. Craft exploit payload
+2. Execute attack via browser or curl
+3. Capture proof (screenshot, response, database output)
+4. Document impact
+5. Save reproducible proof-of-concept
+
+## Deliverable
+Save to `[vuln_type]_exploitation_evidence.md`:
+
+### Format
+# [Vulnerability Type] Exploitation Evidence
+
+## Exploited Vulnerabilities
+
+### Vulnerability 1: [Title]
+**Severity**: Critical/High/Medium/Low
+**Endpoint**: [URL]
+**Parameter**: [param]
+
+#### Proof of Concept
+```bash
+[exact curl command or browser steps]
+```
+
+#### Evidence
+[screenshot or response showing impact]
+
+#### Impact
+[what an attacker can achieve]
+```
+
+## Advanced Techniques
+
+### Multi-Turn Reasoning
+
+For complex vulnerabilities requiring multiple steps:
+
+```markdown
+## Analysis Strategy
+This vulnerability requires a multi-step approach:
+
+1. **Reconnaissance**: Identify session management mechanism
+2. **Analysis**: Determine if session tokens are predictable
+3. **Hypothesis**: If tokens use weak randomness, we can predict valid tokens
+4. **Testing**: Generate 100 tokens and analyze for patterns
+5. **Exploitation**: Predict and hijack an active session
+
+Take your time with each step. Don't rush to exploitation.
+```
+
+### Tool Guidance
+
+Guide agents on when to use which tools:
+
+```markdown
+## Available Tools
+
+**Browser Automation** (Playwright MCP):
+- Use for: Testing UI flows, JavaScript-based vulnerabilities, session management
+- Example: `playwright.goto({{TARGET_URL}})`, `playwright.click('#submit')`
+
+**Command Line** (curl, netcat, etc.):
+- Use for: API testing, raw HTTP requests, protocol-level attacks
+- Example: `curl -X POST https://api.example.com/login -d '{"user":"admin"}'`
+
+**Source Code Analysis**:
+- Use for: Finding vulnerable code patterns, data flow analysis
+- Example: Search for `eval(`, `exec(`, `query(` without parameterization
+
+**save_deliverable**:
+- Use for: Saving final analysis results
+- Format: Markdown with clear sections and code blocks
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Agent not following instructions">
+    - **Be more explicit**: Replace "find vulnerabilities" with step-by-step instructions
+    - **Add examples**: Show what good output looks like
+    - **Structure clearly**: Use markdown headers and lists
+    - **Limit scope**: Focus on one vulnerability type per agent
+  </Accordion>
+
+  <Accordion title="Deliverable format inconsistent">
+    - **Provide exact template**: Show the markdown structure you want
+    - **Use code blocks**: Demonstrate formatting with examples
+    - **Validate format**: Add checks in agent validator
+  </Accordion>
+
+  <Accordion title="Agent misses obvious vulnerabilities">
+    - **Add examples**: Show similar vulnerable patterns
+    - **Improve methodology**: Break analysis into smaller steps
+    - **Increase context**: Reference previous deliverables
+    - **Tune model tier**: Try 'large' for complex analysis
+  </Accordion>
+
+  <Accordion title="Variables not substituting">
+    - **Check spelling**: Variable names are case-sensitive
+    - **Verify PromptManager**: Ensure variable is registered
+    - **Check config**: Some variables require configuration (e.g., LOGIN_INSTRUCTIONS)
+  </Accordion>
+</AccordionGroup>
+
+## Prompt Template Reference
+
+See existing prompts for examples:
+
+- **Vulnerability Analysis**: `prompts/vuln-injection.txt`, `prompts/vuln-xss.txt`
+- **Exploitation**: `prompts/exploit-injection.txt`, `prompts/exploit-auth.txt`
+- **Reconnaissance**: `prompts/recon.txt`, `prompts/pre-recon-code.txt`
+- **Reporting**: `prompts/report-executive.txt`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Adding Agents" icon="plus" href="/development/adding-agents">
+    Create new agents with custom prompts
+  </Card>
+  <Card title="Design Patterns" icon="sitemap" href="/development/design-patterns">
+    Understand Shannon's architectural patterns
+  </Card>
+  <Card title="Agent Registry" icon="list" href="/development/agent-registry">
+    Complete agent registry reference
+  </Card>
+  <Card title="Code Style" icon="code" href="/development/code-style">
+    Follow Shannon's coding conventions
+  </Card>
+</CardGroup>

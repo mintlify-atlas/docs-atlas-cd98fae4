@@ -1,0 +1,306 @@
+---
+title: Legal & Ethical Use
+description: Guidelines for authorized and responsible use of Shannon
+---
+
+## Authorized Testing Only
+
+<Danger>
+**You must have explicit, written authorization from the owner of the target system before running Shannon.**
+
+Unauthorized security testing is illegal and unethical. Violations can result in criminal prosecution, civil liability, and severe penalties.
+</Danger>
+
+### What Constitutes Authorization?
+
+Valid authorization requires:
+
+<Steps>
+  <Step title="Written Permission">
+    Obtain explicit, written consent from the system owner or authorized representative. Verbal agreements are insufficient.
+  </Step>
+  
+  <Step title="Defined Scope">
+    Clearly document:
+    - Target applications and systems
+    - IP addresses and domains
+    - Testing timeframes
+    - Allowed testing methods
+    - Off-limits systems or data
+  </Step>
+  
+  <Step title="Stakeholder Notification">
+    Ensure all relevant stakeholders are informed:
+    - Security teams
+    - Operations teams
+    - Legal department
+    - Compliance officers
+  </Step>
+  
+  <Step title="Rules of Engagement">
+    Establish clear rules:
+    - Maximum acceptable impact
+    - Escalation procedures
+    - Communication protocols
+    - Emergency stop conditions
+  </Step>
+</Steps>
+
+## Computer Fraud and Abuse Act (CFAA) Compliance
+
+### United States Law
+
+The Computer Fraud and Abuse Act (CFAA), 18 U.S.C. § 1030, is the primary U.S. federal law governing computer security.
+
+<Warning>
+**CFAA Violations Include:**
+- Accessing a computer without authorization
+- Exceeding authorized access
+- Causing damage to protected computers
+- Trafficking in passwords or access credentials
+- Extortion involving computers
+</Warning>
+
+### Penalties
+
+CFAA violations can result in:
+- **Criminal penalties**: Up to 10 years imprisonment for first offense
+- **Enhanced penalties**: Up to 20 years for repeat offenses
+- **Civil liability**: Damages and injunctive relief
+- **Fines**: Substantial monetary penalties
+
+### Safe Harbor: Authorized Security Research
+
+The CFAA includes limited safe harbor provisions for good-faith security research:
+- Must be conducted solely for security research purposes
+- Must be authorized by the system owner
+- Must not cause damage or economic harm
+- Must comply with responsible disclosure practices
+
+## International Legal Considerations
+
+Similar laws exist worldwide:
+
+### Europe
+- **UK Computer Misuse Act 1990**: Unauthorized access is criminal
+- **EU Cybersecurity Directive**: Member states have similar provisions
+- **GDPR**: Data protection requirements during security testing
+
+### Other Jurisdictions
+- **Canada Criminal Code**: Section 342.1 (unauthorized use of computer)
+- **Australia Cybercrime Act 2001**: Unauthorized access and modification
+- **Singapore Computer Misuse Act**: Unauthorized access and modification
+
+<Info>
+Always consult with legal counsel familiar with the applicable jurisdiction before conducting security testing.
+</Info>
+
+## Responsible Disclosure
+
+When vulnerabilities are discovered, follow responsible disclosure practices:
+
+### Disclosure Timeline
+
+<Steps>
+  <Step title="Initial Report (Day 0)">
+    - Document the vulnerability thoroughly
+    - Include proof-of-concept (if safe to share)
+    - Report to the organization's security contact
+    - Use encrypted communication when possible
+  </Step>
+  
+  <Step title="Acknowledgment (Day 1-7)">
+    - Confirm receipt with the organization
+    - Establish communication channel
+    - Agree on disclosure timeline
+    - Provide additional details if needed
+  </Step>
+  
+  <Step title="Remediation (Day 7-90)">
+    - Allow time for validation and patching
+    - Provide assistance if requested
+    - Coordinate on disclosure date
+    - Standard disclosure: 90 days
+  </Step>
+  
+  <Step title="Public Disclosure (Day 90+)">
+    - Publish findings after remediation
+    - Credit the organization if appropriate
+    - Share mitigations and lessons learned
+    - Consider coordinated disclosure
+  </Step>
+</Steps>
+
+### Vulnerability Disclosure Platforms
+
+Consider using established platforms:
+- **HackerOne**: Coordinated disclosure platform
+- **Bugcrowd**: Vulnerability disclosure and bug bounties
+- **CERT/CC**: For critical infrastructure vulnerabilities
+- **Company-specific programs**: Many organizations have formal programs
+
+## Defensive Security Tool
+
+Shannon is designed and intended exclusively as a **defensive security tool**.
+
+### Legitimate Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Application Security" icon="shield-check">
+    - Test your own applications
+    - Validate security controls
+    - Pre-deployment security checks
+    - Continuous security testing
+  </Card>
+  
+  <Card title="Authorized Engagements" icon="file-contract">
+    - Professional penetration testing
+    - Red team assessments
+    - Security consulting engagements
+    - Bug bounty programs
+  </Card>
+  
+  <Card title="Research & Education" icon="graduation-cap">
+    - Security research on owned systems
+    - Educational environments
+    - Capture-the-flag (CTF) competitions
+    - Security training labs
+  </Card>
+  
+  <Card title="Compliance & Audit" icon="clipboard-check">
+    - SOC 2 Type II preparation
+    - ISO 27001 compliance testing
+    - PCI DSS security validation
+    - HIPAA security assessments
+  </Card>
+</CardGroup>
+
+### Prohibited Uses
+
+<Warning>
+**Shannon must NOT be used for:**
+- Unauthorized access to systems
+- Testing systems you don't own without permission
+- Malicious attacks or exploitation
+- Competitive intelligence gathering
+- Extortion or blackmail
+- Data theft or exfiltration
+- Disruption of services
+- Any illegal activity
+</Warning>
+
+## Explicit Permission Requirements
+
+### Internal Testing
+
+Even when testing your own organization's systems:
+
+<Checklist>
+  - [ ] Obtain approval from IT/Security leadership
+  - [ ] Notify operations team of testing window
+  - [ ] Document scope and objectives
+  - [ ] Ensure testing is on non-production systems
+  - [ ] Have rollback plan for any changes
+  - [ ] Coordinate with incident response team
+</Checklist>
+
+### Third-Party Testing
+
+When testing on behalf of a client:
+
+<Checklist>
+  - [ ] Signed Statement of Work (SOW) or contract
+  - [ ] Written authorization letter
+  - [ ] Defined scope and exclusions
+  - [ ] Approved testing methodology
+  - [ ] Insurance coverage (E&O, cyber liability)
+  - [ ] Non-disclosure agreement (NDA)
+  - [ ] Point of contact for emergencies
+</Checklist>
+
+### Cloud and Hosted Environments
+
+Additional considerations for cloud platforms:
+
+- **AWS**: Review [AWS Customer Support Policy for Penetration Testing](https://aws.amazon.com/security/penetration-testing/)
+- **Azure**: Follow [Microsoft Cloud Unified Penetration Testing Rules of Engagement](https://www.microsoft.com/en-us/msrc/pentest-rules-of-engagement)
+- **Google Cloud**: Check [GCP Penetration Testing](https://cloud.google.com/security/infrastructure/penetration-testing) requirements
+
+<Info>
+Most cloud providers now allow penetration testing without prior approval for many services, but you should still review their policies and notify them of testing.
+</Info>
+
+## Liability and Responsibility
+
+### User Responsibility
+
+<Warning>
+As a Shannon user, you are solely responsible for:
+- Ensuring you have proper authorization
+- Complying with all applicable laws and regulations
+- Understanding and managing the risks of security testing
+- Any damage or harm resulting from your use of Shannon
+- Protecting sensitive data discovered during testing
+- Following responsible disclosure practices
+</Warning>
+
+### Keygraph Disclaimer
+
+**Keygraph is not responsible for:**
+- Misuse of Shannon
+- Unauthorized testing activities
+- Damages resulting from Shannon use
+- Legal consequences of improper use
+- Third-party actions or claims
+
+### License Terms
+
+Shannon Lite is released under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+Key implications:
+- Free to use for internal security testing
+- Modifications for internal use need not be shared
+- SaaS providers must open-source modifications
+- No warranty or liability from Keygraph
+- Use at your own risk
+
+See the [LICENSE](https://github.com/KeygraphHQ/shannon/blob/main/LICENSE) file for complete terms.
+
+## Best Practices
+
+### Before Starting
+
+1. **Review Authorization**: Confirm you have written permission
+2. **Understand Scope**: Know exactly what you can and cannot test
+3. **Assess Risks**: Understand potential impacts of testing
+4. **Plan Communication**: Establish escalation procedures
+5. **Backup Data**: Ensure systems can be restored if needed
+
+### During Testing
+
+1. **Stay Within Scope**: Don't test unauthorized systems
+2. **Monitor Impact**: Watch for unintended effects
+3. **Document Everything**: Maintain detailed logs
+4. **Communicate Issues**: Report critical findings immediately
+5. **Respect Limits**: Stop if you exceed authorized scope
+
+### After Testing
+
+1. **Secure Findings**: Protect vulnerability data
+2. **Report Responsibly**: Follow disclosure guidelines
+3. **Clean Up**: Remove test accounts and artifacts
+4. **Debrief Stakeholders**: Share lessons learned
+5. **Archive Evidence**: Maintain records for compliance
+
+## Getting Help
+
+If you have questions about legal or ethical use of Shannon:
+
+- **Legal Counsel**: Consult an attorney familiar with cybersecurity law
+- **Keygraph Team**: Contact us at [shannon@keygraph.io](mailto:shannon@keygraph.io)
+- **Community**: Join our [Discord](https://discord.gg/KAqzSHHpRt) for discussions
+- **Documentation**: Review our [usage guidelines](/getting-started/quick-start)
+
+<Tip>
+When in doubt, err on the side of caution and seek additional authorization or guidance.
+</Tip>

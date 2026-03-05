@@ -1,122 +1,151 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Shannon",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#a7a7a7",
+    "light": "#303030",
+    "dark": "#eaeaea"
   },
-  "favicon": "/favicon.svg",
+
+  "logo": {
+    "light": "https://media.brand.dev/8c49c2ce-4813-4f42-a2a3-383aa2457372.png",
+    "dark": "https://media.brand.dev/8c49c2ce-4813-4f42-a2a3-383aa2457372.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/mayorGonzalez/shannon"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/mayorGonzalez/shannon"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/overview",
+              "concepts/architecture",
+              "concepts/workflow-phases",
+              "concepts/agent-system",
+              "concepts/temporal-orchestration"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "CLI Reference",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "cli/commands",
+              "cli/start",
+              "cli/workspaces",
+              "cli/logs",
+              "cli/query",
+              "cli/stop"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Configuration",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "configuration/overview",
+              "configuration/authentication",
+              "configuration/yaml-config",
+              "configuration/retry-strategies",
+              "configuration/pipeline-settings"
+            ]
+          },
+          {
+            "group": "Advanced Usage",
+            "pages": [
+              "advanced/workspaces-resume",
+              "advanced/bedrock",
+              "advanced/vertex-ai",
+              "advanced/router-mode",
+              "advanced/local-apps",
+              "advanced/platform-specific"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/preparing-repositories",
+              "guides/interpreting-reports",
+              "guides/troubleshooting",
+              "guides/cost-optimization"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Development",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Architecture",
             "pages": [
-              "api-reference/introduction"
+              "development/architecture-overview",
+              "development/core-modules",
+              "development/temporal-workflow",
+              "development/mcp-integration",
+              "development/audit-system"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Extending Shannon",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "development/adding-agents",
+              "development/modifying-prompts",
+              "development/design-patterns",
+              "development/code-style"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "development/key-files",
+              "development/agent-registry",
+              "development/error-handling",
+              "development/metrics-tracking"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Security & Compliance",
+        "groups": [
+          {
+            "group": "Security",
+            "pages": [
+              "security/overview",
+              "security/coverage",
+              "security/disclaimers",
+              "security/legal-ethical"
+            ]
+          },
+          {
+            "group": "Sample Reports",
+            "pages": [
+              "reports/overview",
+              "reports/juice-shop",
+              "reports/capital-api",
+              "reports/crapi",
+              "reports/benchmark-results"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,201 @@
+---
+title: Key Files
+description: Directory structure and important file locations in Shannon
+---
+
+This page documents Shannon's key files and directory structure, organized by purpose.
+
+## Entry Points
+
+The main entry points for Shannon's Temporal-based orchestration:
+
+### Temporal Workflow System
+
+- **`src/temporal/workflows.ts`** - Main workflow definition (`pentestPipelineWorkflow`)
+- **`src/temporal/activities.ts`** - Thin activity wrappers with heartbeat and error classification
+- **`src/temporal/worker.ts`** - Worker entry point that registers activities and workflows
+- **`src/temporal/client.ts`** - CLI client for starting and managing workflows
+
+### CLI Interface
+
+- **`shannon`** - Main CLI script at repository root
+- **`docker-compose.yml`** - Docker orchestration for Temporal and worker containers
+
+## Core Logic
+
+Business logic modules (Temporal-agnostic, testable):
+
+### Agent Management
+
+- **`src/session-manager.ts`** - Agent definitions (`AGENTS` registry), phase mappings, MCP agent assignments, and validators
+- **`src/services/agent-execution.ts`** - Complete agent lifecycle: config loading, prompt execution, git checkpoints, validation, and audit logging
+
+### AI Integration
+
+- **`src/ai/claude-executor.ts`** - Claude Agent SDK integration with retry logic and spending cap detection
+
+### Configuration
+
+- **`src/config-parser.ts`** - YAML configuration parsing with JSON Schema validation
+- **`config-schema.json`** - JSON Schema for configuration validation
+
+### Services Layer
+
+All services in `src/services/` are Temporal-agnostic and return `Result<T,E>` types:
+
+- **`src/services/error-handling.ts`** - Error classification, retry logic, and `PentestError` class
+- **`src/services/container.ts`** - Dependency injection container (per-workflow scope)
+- **`src/services/queue-validation.ts`** - Validates vulnerability queues before exploitation
+- **`src/services/config-loader.ts`** - Configuration loading service
+- **`src/services/prompt-manager.ts`** - Prompt template loading with variable substitution
+- **`src/services/git-manager.ts`** - Git checkpoint and rollback operations
+
+## Type Definitions
+
+Consolidated TypeScript types in `src/types/`:
+
+- **`src/types/index.ts`** - Barrel export for all types
+- **`src/types/agents.ts`** - `AgentName`, `AgentDefinition`, `AgentValidator`, `VulnType`
+- **`src/types/errors.ts`** - `ErrorCode` enum, `PentestErrorType`, error contexts
+- **`src/types/result.ts`** - `Result<T,E>` discriminated union for explicit error handling
+- **`src/types/metrics.ts`** - `AgentMetrics` interface for cost and timing data
+- **`src/types/audit.ts`** - `SessionMetadata`, `AgentEndResult`
+- **`src/types/config.ts`** - Configuration type definitions
+- **`src/types/activity-logger.ts`** - `ActivityLogger` interface for structured logging
+
+## Audit System
+
+Crash-safe append-only logging in `audit-logs/{hostname}_{sessionId}/`:
+
+- **`src/audit/index.ts`** - `AuditSession` main class for agent logging
+- **`src/audit/metrics-tracker.ts`** - `MetricsTracker` for session.json management
+- **`src/audit/workflow-logger.ts`** - `WorkflowLogger` for unified human-readable logs
+- **`src/audit/log-stream.ts`** - `LogStream` shared stream primitive
+- **`src/audit/utils.ts`** - Path generation and utility functions
+
+## Temporal Support
+
+Temporal-specific modules:
+
+- **`src/temporal/shared.ts`** - Types, interfaces, and query definitions for workflows
+- **`src/temporal/activity-logger.ts`** - `TemporalActivityLogger` implementation of `ActivityLogger`
+- **`src/temporal/summary-mapper.ts`** - Maps `PipelineSummary` to `WorkflowSummary`
+- **`src/temporal/workspaces.ts`** - Workspace listing and management
+
+## Configuration Files
+
+### Prompts
+
+Prompt templates in `prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`):
+
+- `prompts/pre-recon-code.txt` - Code analysis prompt
+- `prompts/recon.txt` - Attack surface mapping prompt
+- `prompts/vuln-*.txt` - Vulnerability analysis prompts (injection, xss, auth, authz, ssrf)
+- `prompts/exploit-*.txt` - Exploitation prompts
+- `prompts/report-executive.txt` - Executive report generation prompt
+- `prompts/shared/` - Shared prompt partials (login instructions, etc.)
+
+### YAML Configs
+
+Application configurations in `configs/`:
+
+- Target URL and authentication settings
+- MFA/TOTP configuration
+- Per-application testing parameters
+
+## Utilities
+
+Shared utility functions in `src/utils/`:
+
+- **`src/utils/file-io.ts`** - File system operations (atomic writes, JSON reading)
+- **`src/utils/formatting.ts`** - Timestamp and percentage formatting
+- **`src/utils/concurrency.ts`** - Parallel execution helpers
+- **`src/utils/billing-detection.ts`** - Spending cap and billing error detection
+
+## Output Locations
+
+### Audit Logs
+
+Default location: `./audit-logs/{hostname}_{sessionId}/`
+
+- `session.json` - Session metadata and metrics
+- `workflow.log` - Human-readable workflow log
+- `{agent-name}/` - Per-agent directories with prompts and logs
+
+### Deliverables
+
+Saved to `deliverables/` in the target repository via the `save_deliverable` MCP tool.
+
+## Directory Structure
+
+```
+shannon/
+├── shannon                           # CLI entry point
+├── docker-compose.yml                # Docker orchestration
+├── CLAUDE.md                         # Main development guide
+├── configs/                          # YAML configuration files
+├── prompts/                          # Prompt templates
+│   ├── shared/                       # Shared prompt partials
+│   └── *.txt                         # Phase-specific prompts
+├── src/
+│   ├── temporal/                     # Temporal workflows and activities
+│   │   ├── workflows.ts              # Main workflow
+│   │   ├── activities.ts             # Activity wrappers
+│   │   ├── worker.ts                 # Worker entry point
+│   │   ├── client.ts                 # CLI client
+│   │   └── *.ts                      # Support modules
+│   ├── services/                     # Business logic (Temporal-agnostic)
+│   │   ├── agent-execution.ts        # Agent lifecycle
+│   │   ├── error-handling.ts         # Error classification
+│   │   ├── container.ts              # DI container
+│   │   └── *.ts                      # Other services
+│   ├── types/                        # Type definitions
+│   │   ├── index.ts                  # Barrel export
+│   │   ├── agents.ts                 # Agent types
+│   │   ├── errors.ts                 # Error types
+│   │   └── *.ts                      # Other types
+│   ├── audit/                        # Audit system
+│   │   ├── index.ts                  # AuditSession
+│   │   ├── metrics-tracker.ts        # MetricsTracker
+│   │   └── *.ts                      # Support modules
+│   ├── ai/                           # AI integration
+│   │   └── claude-executor.ts        # Claude SDK wrapper
+│   ├── utils/                        # Shared utilities
+│   ├── session-manager.ts            # AGENTS registry
+│   └── config-parser.ts              # Config parsing
+├── audit-logs/                       # Output directory
+└── repos/                            # Target repositories
+```
+
+## Key Design Patterns
+
+### Services Boundary
+
+Activities are thin Temporal wrappers; `src/services/` owns business logic:
+
+- Accept `ActivityLogger` interface
+- Return `Result<T,E>` types
+- No Temporal imports in services
+- Testable without Temporal infrastructure
+
+### Configuration-Driven
+
+- YAML configs with JSON Schema validation
+- Prompt templates with variable substitution
+- Registry-based agent definitions
+
+### Progressive Analysis
+
+Each phase builds on previous results:
+
+1. Pre-recon creates `code_analysis_deliverable.md`
+2. Recon creates `recon_deliverable.md`
+3. Vulnerability agents create `{type}_analysis_deliverable.md` and `{type}_queue.json`
+4. Exploitation agents consume queues and create `{type}_exploitation_evidence.md`
+5. Report agent synthesizes all deliverables
+
+## Related Documentation
+
+- [Agent Registry](/development/agent-registry) - Complete AGENTS registry reference
+- [Error Handling](/development/error-handling) - Error codes and classification
+- [Metrics Tracking](/development/metrics-tracking) - Session metrics and cost tracking

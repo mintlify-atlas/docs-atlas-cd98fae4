@@ -1,0 +1,176 @@
+---
+title: 'Preparing Repositories'
+description: 'Learn how to structure your repositories for Shannon pentesting'
+---
+
+Shannon expects target repositories to be placed in the `./repos/` directory at the project root. This guide covers how to prepare single repositories, monorepos, and multi-repository applications.
+
+## Understanding the ./repos/ Directory
+
+The `REPO` flag in Shannon commands refers to a **folder name inside `./repos/`**, not an absolute path. Shannon mounts this directory into its Docker containers to perform source code analysis.
+
+```bash
+shannon/
+├── repos/              # Place all target repositories here
+│   ├── my-app/        # Single repository
+│   ├── my-monorepo/   # Monorepo with multiple services
+│   └── multi-app/     # Directory with multiple cloned repos
+├── configs/
+├── audit-logs/
+└── shannon            # CLI script
+```
+
+## Single Repository Setup
+
+For standard single-repository applications, clone or copy your repository directly into `./repos/`:
+
+```bash
+# Clone your repository into ./repos/
+git clone https://github.com/your-org/your-repo.git ./repos/your-repo
+
+# Run Shannon with REPO pointing to the folder name
+./shannon start URL=https://your-app.com REPO=your-repo
+```
+
+### Using Symlinks
+
+If you already have the repository cloned elsewhere on your system, you can create a symlink instead of duplicating it:
+
+```bash
+# Create a symlink to your existing repository
+ln -s /path/to/existing/repo ./repos/my-repo
+
+# Run Shannon normally
+./shannon start URL=https://my-app.com REPO=my-repo
+```
+
+<Note>
+Symlinks are particularly useful during development when you want to test Shannon against a repository you're actively working on without creating duplicate copies.
+</Note>
+
+## Monorepo Setup
+
+For monorepos containing multiple services or applications in a single repository:
+
+```bash
+# Clone the monorepo into ./repos/
+git clone https://github.com/your-org/your-monorepo.git ./repos/your-monorepo
+
+# Shannon will analyze the entire monorepo structure
+./shannon start URL=https://your-app.com REPO=your-monorepo
+```
+
+Shannon's AI agents will automatically navigate the monorepo structure and identify relevant code paths for the target application.
+
+## Multi-Repository Applications
+
+For applications split across multiple repositories (e.g., separate frontend, backend, and API repositories):
+
+```bash
+# Create a parent directory for the application
+mkdir ./repos/your-app
+cd ./repos/your-app
+
+# Clone all related repositories into this directory
+git clone https://github.com/your-org/frontend.git
+git clone https://github.com/your-org/backend.git
+git clone https://github.com/your-org/api.git
+
+# Return to Shannon root and run
+cd ../..
+./shannon start URL=https://your-app.com REPO=your-app
+```
+
+The resulting structure will look like:
+
+```
+repos/your-app/
+├── frontend/
+│   ├── .git/
+│   ├── src/
+│   └── package.json
+├── backend/
+│   ├── .git/
+│   ├── src/
+│   └── package.json
+└── api/
+    ├── .git/
+    ├── src/
+    └── package.json
+```
+
+Shannon will analyze all repositories in the parent directory and correlate findings across the entire application stack.
+
+## Common Issues and Solutions
+
+<Accordion title="Error: Repository not found">
+  This error occurs when Shannon cannot find the repository in `./repos/`.
+  
+  **Solution:** The `REPO` parameter must be a folder name inside `./repos/`, not an absolute path. Always clone or symlink your repository into `./repos/` first:
+  
+  ```bash
+  # Incorrect - using absolute path
+  ./shannon start URL=https://app.com REPO=/home/user/projects/my-repo
+  
+  # Correct - using folder name in ./repos/
+  ln -s /home/user/projects/my-repo ./repos/my-repo
+  ./shannon start URL=https://app.com REPO=my-repo
+  ```
+</Accordion>
+
+<Accordion title="How do I test a specific branch or commit?">
+  Simply checkout the desired branch or commit before running Shannon:
+  
+  ```bash
+  cd ./repos/your-repo
+  git checkout feature-branch
+  # or
+  git checkout abc123
+  cd ../..
+  ./shannon start URL=https://your-app.com REPO=your-repo
+  ```
+</Accordion>
+
+<Accordion title="Can I use a shallow clone to save space?">
+  Yes, Shannon only needs the working directory and doesn't require full git history:
+  
+  ```bash
+  git clone --depth 1 https://github.com/your-org/your-repo.git ./repos/your-repo
+  ```
+  
+  This clones only the latest commit, significantly reducing disk space for large repositories.
+</Accordion>
+
+<Accordion title="What if my repository has submodules?">
+  Clone with submodules initialized:
+  
+  ```bash
+  git clone --recurse-submodules https://github.com/your-org/your-repo.git ./repos/your-repo
+  ```
+  
+  Shannon's agents will analyze the complete codebase including submodule contents.
+</Accordion>
+
+## Repository Permissions
+
+Shannon runs inside Docker containers with access to the `./repos/` directory. On Linux systems, you may encounter permission issues if your Docker setup requires elevated privileges.
+
+**Linux users:** If you see permission errors, ensure your user has access to the Docker socket, or run Shannon commands with `sudo`:
+
+```bash
+sudo ./shannon start URL=https://app.com REPO=my-repo
+```
+
+Alternatively, add your user to the `docker` group (requires logout/login):
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+## Next Steps
+
+Once your repository is prepared:
+
+1. [Configure authentication](/configuration/authentication) if your application requires login
+2. [Start your first pentest](/quickstart#running-your-first-pentest)
+3. [Learn to interpret the results](/guides/interpreting-reports)

@@ -1,0 +1,307 @@
+---
+title: Pipeline Settings
+description: Configure pipeline concurrency, testing mode, and execution behavior
+---
+
+Shannon's pipeline settings control how vulnerability analysis and exploitation phases execute. These settings affect concurrency, retry behavior, and testing modes.
+
+## Pipeline Configuration
+
+The `pipeline` section of your configuration file controls execution behavior:
+
+```yaml
+pipeline:
+  retry_preset: default | subscription
+  max_concurrent_pipelines: 1-5
+```
+
+Both settings are optional. If omitted, Shannon uses default values.
+
+## Maximum Concurrent Pipelines
+
+During the vulnerability analysis and exploitation phases, Shannon runs multiple specialized agents in parallel. The `max_concurrent_pipelines` setting controls how many agents run simultaneously.
+
+### Configuration
+
+<ParamField path="max_concurrent_pipelines" type="number" default="5">
+  Maximum number of concurrent vulnerability pipelines (1-5)
+</ParamField>
+
+**Default**: 5 (all pipelines run in parallel)
+
+**Range**: 1-5
+
+### How It Works
+
+Shannon has 5 specialized vulnerability analysis agents:
+
+1. **Injection** - SQL injection, command injection, etc.
+2. **XSS** - Cross-site scripting
+3. **Authentication** - Broken authentication
+4. **Authorization** - Broken access control
+5. **SSRF** - Server-side request forgery
+
+By default, all 5 agents run in parallel. Setting `max_concurrent_pipelines: 2` means:
+
+1. Agents 1-2 start immediately
+2. When agent 1 completes, agent 3 starts
+3. When agent 2 completes, agent 4 starts
+4. When agent 3 completes, agent 5 starts
+5. Continue until all complete
+
+### When to Adjust Concurrency
+
+**Reduce concurrency (1-3) if:**
+- You're hitting API rate limits frequently
+- You want to reduce burst API usage costs
+- You have a subscription plan with rolling rate limit windows
+- You prefer more predictable API usage patterns
+
+**Keep default (5) if:**
+- You want the fastest possible results
+- You have a high API rate limit
+- You're not concerned about burst costs
+- Your API plan has generous limits
+
+### Performance Impact
+
+| Concurrency | Wall-Clock Time | API Burst | Rate Limit Risk |
+|-------------|----------------|-----------|------------------|
+| 1           | ~5-7 hours     | Very Low  | Minimal          |
+| 2           | ~3-4 hours     | Low       | Low              |
+| 3           | ~2-3 hours     | Medium    | Medium           |
+| 5 (default) | ~1-1.5 hours   | High      | Higher           |
+
+<Info>
+These estimates assume typical application complexity. Actual times vary based on application size, authentication complexity, and number of vulnerabilities found.
+</Info>
+
+## Examples
+
+### Example 1: Fastest Execution (Default)
+
+```yaml
+# No pipeline section needed - uses defaults
+# All 5 agents run in parallel
+# Wall-clock time: ~1-1.5 hours
+```
+
+### Example 2: Balanced Approach
+
+```yaml
+pipeline:
+  max_concurrent_pipelines: 3
+# 3 agents run in parallel
+# Wall-clock time: ~2-3 hours
+# Good balance of speed and API usage
+```
+
+### Example 3: Rate Limit Conscious
+
+```yaml
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 2
+# 2 agents run in parallel
+# Extended retry windows for subscription plans
+# Wall-clock time: ~3-4 hours
+# Minimal rate limit risk
+```
+
+### Example 4: Maximum API Conservation
+
+```yaml
+pipeline:
+  max_concurrent_pipelines: 1
+# 1 agent at a time (sequential execution)
+# Wall-clock time: ~5-7 hours
+# Lowest possible API burst usage
+```
+
+## Testing Mode
+
+For development and testing, you can enable pipeline testing mode via command-line flag:
+
+```bash
+./shannon start URL=https://example.com REPO=repo-name PIPELINE_TESTING=true
+```
+
+### Testing Mode Behavior
+
+**Prompt modifications:**
+- Minimal agent prompts for faster execution
+- Reduced context windows
+- Simplified analysis
+
+**Retry configuration:**
+- Initial interval: 10 seconds
+- Maximum interval: 10 seconds (no backoff)
+- Maximum attempts: 3
+- Total timeout: 10 minutes per agent
+
+**Use testing mode for:**
+- Rapid iteration during development
+- Configuration validation
+- Testing authentication flows
+- Debugging issues
+
+**Do NOT use testing mode for:**
+- Production security testing
+- Real vulnerability assessment
+- Comprehensive analysis
+- Results you plan to act on
+
+<Warning>
+Testing mode produces incomplete results and will quickly exhaust retries on rate limits. Use only for development and debugging.
+</Warning>
+
+## Combining Settings
+
+You can combine pipeline settings with other configuration sections:
+
+```yaml
+authentication:
+  login_type: form
+  login_url: "https://example.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "testpassword"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+
+rules:
+  focus:
+    - description: "Focus on API endpoints"
+      type: path
+      url_path: "/api"
+
+pipeline:
+  retry_preset: subscription
+  max_concurrent_pipelines: 2
+```
+
+## Monitoring Pipeline Execution
+
+### Worker Logs
+
+```bash
+./shannon logs
+```
+
+Look for messages indicating agent starts and completions:
+```
+[INFO] Starting vulnerability analysis phase (2 concurrent)
+[INFO] Agent 'injection' started
+[INFO] Agent 'xss' started
+[INFO] Agent 'injection' completed successfully
+[INFO] Agent 'auth' started
+```
+
+### Temporal Web UI
+
+```bash
+open http://localhost:8233
+```
+
+The Temporal UI shows:
+- Currently executing agents
+- Queued agents waiting for slots
+- Agent execution history
+- Parallel execution timeline
+
+### Workflow Progress Query
+
+```bash
+./shannon query ID=shannon-1234567890
+```
+
+Outputs:
+```json
+{
+  "status": "running",
+  "currentPhase": "vulnerability_analysis",
+  "currentAgent": "injection",
+  "completedAgents": ["pre-recon", "recon"],
+  "elapsedMs": 3600000
+}
+```
+
+## Advanced: Resume from Checkpoint
+
+Shannon automatically checkpoints progress after each agent completes. If a workflow is interrupted, you can resume from the last checkpoint:
+
+```bash
+# Resume the same workspace
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+```
+
+Shannon will:
+1. Load the workspace's `session.json`
+2. Identify completed agents
+3. Skip completed agents
+4. Resume from the next agent
+
+This works regardless of concurrency settings. If you had `max_concurrent_pipelines: 5` and 2 agents completed before interruption, Shannon will resume with the remaining 3 agents.
+
+## Cost Considerations
+
+Pipeline concurrency affects costs:
+
+**Higher concurrency (4-5):**
+- More parallel API calls
+- Higher burst costs
+- Faster results
+- Estimated cost: ~$50 USD per run
+
+**Lower concurrency (1-2):**
+- Fewer parallel API calls
+- Lower burst costs
+- Slower results
+- Estimated cost: ~$40-45 USD per run
+
+Cost differences are primarily due to retry efficiency. Lower concurrency reduces rate limit hits, requiring fewer retries and backoff periods.
+
+## Troubleshooting
+
+### "Too many concurrent requests" errors
+
+**Problem**: Hitting API rate limits with default concurrency
+
+**Solution**: Reduce concurrency:
+```yaml
+pipeline:
+  max_concurrent_pipelines: 2
+```
+
+### Pipeline taking too long
+
+**Problem**: Concurrency set too low
+
+**Solution**: Increase concurrency or use default:
+```yaml
+pipeline:
+  max_concurrent_pipelines: 5  # or omit for default
+```
+
+### Some agents not starting
+
+**Problem**: Earlier agent failed, blocking queue
+
+**Solution**: Check logs for failure reason:
+```bash
+./shannon logs
+```
+
+Shannon continues execution even if individual agents fail. Only non-retryable errors (authentication, configuration) will stop the entire pipeline.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Retry Strategies" icon="rotate" href="/configuration/retry-strategies">
+    Configure retry behavior for rate limits
+  </Card>
+  <Card title="YAML Config Reference" icon="file-code" href="/configuration/yaml-config">
+    Complete configuration options reference
+  </Card>
+</CardGroup>

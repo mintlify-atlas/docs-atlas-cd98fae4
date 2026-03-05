@@ -1,0 +1,74 @@
+---
+title: Workspaces and Resuming
+description: Learn how to use workspaces to organize runs and resume interrupted pentests
+---
+
+Shannon supports **workspaces** that allow you to resume interrupted or failed runs without re-running completed agents.
+
+## How It Works
+
+- Every run creates a workspace in `audit-logs/` (auto-named by default, e.g. `example-com_shannon-1771007534808`)
+- Use `WORKSPACE=<name>` to give your run a custom name for easier reference
+- To resume any run, pass its workspace name via `WORKSPACE=` — Shannon detects which agents completed successfully and picks up where it left off
+- Each agent's progress is checkpointed via git commits, so resumed runs start from a clean, validated state
+
+## Usage Examples
+
+<Steps>
+  <Step title="Start with a named workspace">
+    ```bash
+    ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+    ```
+  </Step>
+
+  <Step title="Resume the same workspace">
+    Simply run the same command again — Shannon skips completed agents:
+    ```bash
+    ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+    ```
+  </Step>
+
+  <Step title="Resume an auto-named workspace">
+    ```bash
+    ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=example-com_shannon-1771007534808
+    ```
+  </Step>
+
+  <Step title="List all workspaces">
+    View all workspaces and their status:
+    ```bash
+    ./shannon workspaces
+    ```
+  </Step>
+</Steps>
+
+## Important Notes
+
+<Warning>
+The `URL` must match the original workspace URL when resuming. Shannon will reject mismatched URLs to prevent cross-target contamination.
+</Warning>
+
+## Workspace Structure
+
+Each workspace is stored in the `audit-logs/` directory with the following structure:
+
+```
+audit-logs/{hostname}_{sessionId}/
+├── session.json          # Metrics and session data
+├── agents/               # Per-agent execution logs
+├── prompts/              # Prompt snapshots for reproducibility
+└── deliverables/
+    └── comprehensive_security_assessment_report.md
+```
+
+## Git Checkpoints
+
+Shannon uses git commits to checkpoint each agent's progress. When you resume a workspace:
+
+1. Shannon loads `session.json` to detect completed agents
+2. Validates that deliverables exist for completed agents
+3. Restores git checkpoints to ensure a clean state
+4. Cleans up any incomplete deliverables from failed agents
+5. Continues execution from the next pending agent
+
+This ensures that resumed runs are reliable and don't repeat work unnecessarily.

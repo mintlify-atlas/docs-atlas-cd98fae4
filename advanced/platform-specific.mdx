@@ -1,0 +1,203 @@
+---
+title: Platform-Specific Instructions
+description: Setup instructions for Windows, Linux, and macOS
+---
+
+Shannon works on all major platforms, but each has specific setup requirements.
+
+## Windows
+
+Windows users have two options: **WSL2 (recommended)** or **Git Bash (native)**.
+
+### WSL2 (Recommended)
+
+WSL2 provides the best experience for running Shannon on Windows.
+
+<Steps>
+  <Step title="Ensure WSL 2 is installed">
+    ```powershell
+    wsl --install
+    wsl --set-default-version 2
+    ```
+  </Step>
+
+  <Step title="Check installed distributions">
+    ```powershell
+    wsl --list --verbose
+    ```
+  </Step>
+
+  <Step title="Install a distribution (if needed)">
+    ```powershell
+    # List available distributions
+    wsl --list --online
+
+    # Install Ubuntu 24.04 (recommended)
+    wsl --install Ubuntu-24.04
+    ```
+  </Step>
+
+  <Step title="Convert to WSL 2 (if needed)">
+    If your distribution shows `VERSION 1`, convert it:
+    ```powershell
+    wsl --set-version <distro-name> 2
+    ```
+  </Step>
+
+  <Step title="Install Docker Desktop">
+    1. Download and install [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/)
+    2. Open Docker Desktop settings
+    3. Navigate to **Settings > General**
+    4. Enable **"Use the WSL 2 based engine"**
+    5. Apply and restart
+  </Step>
+
+  <Step title="Clone and run Shannon inside WSL">
+    Open a WSL terminal by typing `wsl -d <distro-name>` in PowerShell or CMD:
+
+    ```bash
+    # Inside WSL terminal
+    git clone https://github.com/KeygraphHQ/shannon.git
+    cd shannon
+    cp .env.example .env  # Edit with your API key
+    ./shannon start URL=https://your-app.com REPO=your-repo
+    ```
+  </Step>
+
+  <Step title="Access Temporal Web UI">
+    To access the Temporal Web UI from Windows:
+
+    1. Run `ip addr` inside WSL to find your WSL IP address
+    2. Navigate to `http://<wsl-ip>:8233` in your Windows browser
+  </Step>
+</Steps>
+
+<Note>
+See [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands) for reference.
+</Note>
+
+### Git Bash (Native)
+
+For a native Windows experience without WSL:
+
+<Steps>
+  <Step title="Install Git for Windows">
+    Download and install [Git for Windows](https://git-scm.com/install/windows)
+  </Step>
+
+  <Step title="Install Docker Desktop">
+    Download and install [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/)
+  </Step>
+
+  <Step title="Run Shannon from Git Bash">
+    Open Git Bash and run:
+    ```bash
+    git clone https://github.com/KeygraphHQ/shannon.git
+    cd shannon
+    cp .env.example .env
+    ./shannon start URL=https://your-app.com REPO=your-repo
+    ```
+  </Step>
+</Steps>
+
+### Windows Antivirus False Positives
+
+<Warning>
+Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` as malware. These are **false positives** caused by exploit code in the reports.
+</Warning>
+
+**Solutions:**
+
+1. Add an exclusion for the Shannon directory in Windows Defender
+2. Use Docker/WSL2 for better isolation
+3. Manually restore quarantined files from Windows Security
+
+## Linux
+
+Linux users can run Shannon natively with Docker installed.
+
+<Steps>
+  <Step title="Install Docker">
+    Follow the [official Docker installation guide for Linux](https://docs.docker.com/engine/install/)
+  </Step>
+
+  <Step title="Configure Docker permissions (if needed)">
+    You may need to run commands with `sudo` or add your user to the docker group:
+
+    ```bash
+    sudo usermod -aG docker $USER
+    newgrp docker
+    ```
+  </Step>
+
+  <Step title="Clone and run Shannon">
+    ```bash
+    git clone https://github.com/KeygraphHQ/shannon.git
+    cd shannon
+    cp .env.example .env
+    ./shannon start URL=https://your-app.com REPO=your-repo
+    ```
+  </Step>
+</Steps>
+
+### Permission Issues
+
+If you encounter permission issues with output files:
+
+1. **Option A**: Add your user to the docker group (recommended)
+   ```bash
+   sudo usermod -aG docker $USER
+   newgrp docker
+   ```
+
+2. **Option B**: Run Shannon with sudo
+   ```bash
+   sudo ./shannon start URL=https://example.com REPO=repo-name
+   ```
+
+3. **Option C**: Fix permissions on output directories
+   ```bash
+   sudo chown -R $USER:$USER audit-logs/
+   ```
+
+## macOS
+
+macOS provides the smoothest experience with Docker Desktop.
+
+<Steps>
+  <Step title="Install Docker Desktop">
+    Download and install [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install/)
+  </Step>
+
+  <Step title="Clone and run Shannon">
+    ```bash
+    git clone https://github.com/KeygraphHQ/shannon.git
+    cd shannon
+    cp .env.example .env
+    ./shannon start URL=https://your-app.com REPO=your-repo
+    ```
+  </Step>
+</Steps>
+
+<Note>
+macOS works out of the box with Docker Desktop installed. No additional configuration needed.
+</Note>
+
+## Platform Comparison
+
+| Platform | Setup Complexity | Performance | Recommended |
+|----------|-----------------|-------------|-------------|
+| macOS | ⭐ Easy | Excellent | ✅ Yes |
+| Windows (WSL2) | ⭐⭐ Moderate | Very Good | ✅ Yes |
+| Linux | ⭐ Easy | Excellent | ✅ Yes |
+| Windows (Git Bash) | ⭐⭐ Moderate | Good | ⚠️ WSL2 preferred |
+
+## Testing Local Applications
+
+All platforms support testing local applications using `host.docker.internal`:
+
+```bash
+./shannon start URL=http://host.docker.internal:3000 REPO=repo-name
+```
+
+See [Testing Local Applications](/advanced/local-apps) for detailed instructions.

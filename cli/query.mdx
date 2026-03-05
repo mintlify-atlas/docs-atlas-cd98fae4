@@ -1,0 +1,466 @@
+---
+title: 'Query Workflow Progress'
+description: 'Query detailed workflow state and progress using Temporal'
+icon: 'magnifying-glass'
+---
+
+Shannon workflows expose a `getProgress` query that provides detailed, real-time progress information. This is accessed through the Temporal Web UI and provides structured data about workflow state, completed agents, and metrics.
+
+<Note>
+  Unlike other Shannon commands, workflow queries are accessed through the **Temporal Web UI** at http://localhost:8233, not via the `./shannon` CLI script.
+</Note>
+
+## Accessing Workflow Queries
+
+### Via Temporal Web UI
+
+1. **Open Temporal Web UI**: http://localhost:8233
+2. **Find your workflow**: Search by workflow ID or workspace name
+3. **Click on the workflow** to view details
+4. **Navigate to Query tab**
+5. **Select `getProgress` query**
+6. **Click Execute**
+
+```bash
+# Start workflow
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit
+
+# Open Temporal UI
+open http://localhost:8233
+
+# Search for: audit_shannon-1234567890
+# Click workflow → Query tab → getProgress → Execute
+```
+
+### Via Temporal CLI
+
+Alternatively, use the Temporal CLI (requires Temporal CLI installation):
+
+```bash
+# Query workflow progress
+temporal workflow query \
+  --workflow-id audit_shannon-1234567890 \
+  --query-type getProgress
+```
+
+## Query Response Structure
+
+The `getProgress` query returns detailed JSON with workflow state:
+
+```json
+{
+  "workflowId": "audit_shannon-1234567890",
+  "targetUrl": "https://example.com",
+  "currentPhase": "vulnerability-analysis",
+  "totalPhases": 5,
+  "completedPhases": 2,
+  "state": {
+    "preRecon": {
+      "status": "completed",
+      "startTime": "2024-03-05T10:00:00Z",
+      "endTime": "2024-03-05T10:15:00Z",
+      "duration": 900,
+      "metrics": {
+        "tokens": 125000,
+        "cost": 1.88
+      },
+      "deliverable": "repos/my-repo/deliverables/pre_recon_deliverable.md"
+    },
+    "recon": {
+      "status": "completed",
+      "startTime": "2024-03-05T10:15:01Z",
+      "endTime": "2024-03-05T10:30:00Z",
+      "duration": 899,
+      "metrics": {
+        "tokens": 85000,
+        "cost": 1.28
+      },
+      "deliverable": "repos/my-repo/deliverables/recon_deliverable.md"
+    },
+    "injectionVuln": {
+      "status": "running",
+      "startTime": "2024-03-05T10:30:01Z",
+      "progress": "Analyzing SQL injection vectors"
+    },
+    "xssVuln": {
+      "status": "running",
+      "startTime": "2024-03-05T10:30:01Z",
+      "progress": "Testing XSS in form inputs"
+    },
+    "authVuln": {
+      "status": "queued"
+    },
+    "authzVuln": {
+      "status": "queued"
+    },
+    "ssrfVuln": {
+      "status": "queued"
+    }
+  },
+  "metrics": {
+    "totalTokens": 210000,
+    "totalCost": 3.16,
+    "duration": 1800,
+    "estimatedCompletion": "2024-03-05T12:00:00Z"
+  },
+  "exploitQueue": [],
+  "errors": []
+}
+```
+
+## Query Fields
+
+### Workflow Metadata
+
+<ResponseField name="workflowId" type="string">
+  Unique workflow identifier (e.g., `audit_shannon-1234567890`)
+</ResponseField>
+
+<ResponseField name="targetUrl" type="string">
+  Target URL being tested
+</ResponseField>
+
+<ResponseField name="currentPhase" type="string">
+  Current workflow phase: `pre-recon`, `recon`, `vulnerability-analysis`, `exploitation`, or `reporting`
+</ResponseField>
+
+<ResponseField name="totalPhases" type="number">
+  Total number of pipeline phases (always 5)
+</ResponseField>
+
+<ResponseField name="completedPhases" type="number">
+  Number of fully completed phases
+</ResponseField>
+
+### Agent State
+
+<ResponseField name="state" type="object">
+  Detailed state for each agent in the pipeline:
+  
+  - **status**: `queued`, `running`, `completed`, `failed`, `skipped`
+  - **startTime**: ISO 8601 timestamp when agent started
+  - **endTime**: ISO 8601 timestamp when agent completed
+  - **duration**: Execution time in seconds
+  - **progress**: Current activity description (for running agents)
+  - **metrics**: Token usage and cost data
+  - **deliverable**: Path to generated deliverable file
+  - **error**: Error message (if failed)
+</ResponseField>
+
+### Metrics
+
+<ResponseField name="metrics.totalTokens" type="number">
+  Cumulative tokens used across all completed agents
+</ResponseField>
+
+<ResponseField name="metrics.totalCost" type="number">
+  Cumulative cost in USD
+</ResponseField>
+
+<ResponseField name="metrics.duration" type="number">
+  Total workflow execution time in seconds
+</ResponseField>
+
+<ResponseField name="metrics.estimatedCompletion" type="string">
+  Estimated completion time based on current progress (ISO 8601)
+</ResponseField>
+
+### Exploit Queue
+
+<ResponseField name="exploitQueue" type="array">
+  List of vulnerability agents that found exploitable issues and queued exploit agents:
+  
+  ```json
+  [
+    {
+      "vulnAgent": "injection-vuln",
+      "exploitAgent": "injection-exploit",
+      "queuedAt": "2024-03-05T10:45:00Z",
+      "status": "pending"
+    }
+  ]
+  ```
+</ResponseField>
+
+### Errors
+
+<ResponseField name="errors" type="array">
+  List of errors encountered during workflow execution:
+  
+  ```json
+  [
+    {
+      "agent": "injection-vuln",
+      "timestamp": "2024-03-05T10:30:15Z",
+      "error": "Rate limit exceeded (429)",
+      "retryAttempt": 1,
+      "nextRetry": "2024-03-05T10:35:15Z"
+    }
+  ]
+  ```
+</ResponseField>
+
+## Agent Status Values
+
+### queued
+
+Agent is scheduled but hasn't started yet:
+
+```json
+{
+  "authVuln": {
+    "status": "queued"
+  }
+}
+```
+
+**Meaning:**
+- Agent is waiting for parallel execution slot
+- Or waiting for previous sequential phase to complete
+- No resources consumed yet
+
+### running
+
+Agent is actively executing:
+
+```json
+{
+  "injectionVuln": {
+    "status": "running",
+    "startTime": "2024-03-05T10:30:01Z",
+    "progress": "Testing SQL injection in /api/users endpoint"
+  }
+}
+```
+
+**Meaning:**
+- Agent SDK session is active
+- Tools are being invoked (bash, file operations, MCP)
+- Tokens are being consumed
+
+### completed
+
+Agent finished successfully:
+
+```json
+{
+  "recon": {
+    "status": "completed",
+    "startTime": "2024-03-05T10:15:01Z",
+    "endTime": "2024-03-05T10:30:00Z",
+    "duration": 899,
+    "metrics": {
+      "tokens": 85000,
+      "cost": 1.28
+    },
+    "deliverable": "repos/my-repo/deliverables/recon_deliverable.md"
+  }
+}
+```
+
+**Meaning:**
+- Agent executed successfully
+- Deliverable generated and validated
+- Metrics recorded
+- Workflow continues to next agent
+
+### failed
+
+Agent encountered non-retryable error:
+
+```json
+{
+  "authVuln": {
+    "status": "failed",
+    "startTime": "2024-03-05T10:30:01Z",
+    "endTime": "2024-03-05T10:32:00Z",
+    "error": "AuthenticationError: Invalid API key",
+    "errorCode": "AUTHENTICATION_ERROR"
+  }
+}
+```
+
+**Meaning:**
+- Agent encountered permanent error
+- Workflow may continue with other agents
+- Manual intervention required to fix issue
+- Resume workflow after fixing
+
+### skipped
+
+Agent was skipped (resume scenario):
+
+```json
+{
+  "recon": {
+    "status": "skipped",
+    "reason": "Already completed in previous run",
+    "deliverable": "repos/my-repo/deliverables/recon_deliverable.md"
+  }
+}
+```
+
+**Meaning:**
+- Agent completed in previous workflow execution
+- Deliverable exists and is valid
+- Workflow resumed from later checkpoint
+
+## Querying Active Workflows
+
+### Monitoring Progress
+
+```bash
+# Start workflow
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit
+
+# Query progress every 60 seconds
+while true; do
+  temporal workflow query \
+    --workflow-id audit_shannon-1234567890 \
+    --query-type getProgress | jq '.currentPhase, .completedPhases'
+  sleep 60
+done
+```
+
+### Extract Specific Metrics
+
+```bash
+# Get total cost
+temporal workflow query \
+  --workflow-id audit_shannon-1234567890 \
+  --query-type getProgress | jq '.metrics.totalCost'
+
+# Get completed agents
+temporal workflow query \
+  --workflow-id audit_shannon-1234567890 \
+  --query-type getProgress | jq '.state | to_entries | map(select(.value.status == "completed")) | map(.key)'
+```
+
+## Comparison with Other Monitoring
+
+| Method | Real-time | Structured Data | Historical | Access |
+|--------|-----------|-----------------|------------|--------|
+| **getProgress Query** | ✅ | ✅ JSON | ❌ | Temporal UI/CLI |
+| **./shannon logs** | ✅ | ❌ Plain text | ✅ | Terminal |
+| **./shannon workspaces** | ✅ | ⚠️ Table view | ❌ | Terminal |
+| **Temporal Event History** | ✅ | ✅ JSON | ✅ | Temporal UI |
+| **audit-logs/** | ❌ | ✅ JSON/Text | ✅ | Filesystem |
+
+### When to Use Each
+
+<AccordionGroup>
+  <Accordion title="getProgress Query">
+    **Best for:**
+    - Real-time structured data
+    - Integration with monitoring systems
+    - Automated progress tracking
+    - Cost and metrics monitoring
+    
+    **Use when:**
+    - You need programmatic access to state
+    - Building dashboards or alerts
+    - Tracking multiple concurrent workflows
+  </Accordion>
+  
+  <Accordion title="./shannon logs">
+    **Best for:**
+    - Human-readable progress updates
+    - Debugging agent execution
+    - Following real-time narrative
+    - Understanding agent decisions
+    
+    **Use when:**
+    - Monitoring a single workflow
+    - Troubleshooting issues
+    - Learning how agents work
+  </Accordion>
+  
+  <Accordion title="./shannon workspaces">
+    **Best for:**
+    - Quick status overview
+    - Managing multiple workspaces
+    - Finding workflow IDs
+    - Resume decision-making
+    
+    **Use when:**
+    - You have multiple active workflows
+    - Deciding which workflow to resume
+    - Getting a high-level overview
+  </Accordion>
+</AccordionGroup>
+
+## Example Use Cases
+
+### Cost Monitoring Dashboard
+
+Build a dashboard that tracks costs across all active workflows:
+
+```bash
+#!/bin/bash
+# monitor-costs.sh
+
+# Get all running workflows
+WORKFLOWS=$(temporal workflow list --query 'ExecutionStatus="Running"' -o json | jq -r '.[] | .execution.workflowId')
+
+for wf in $WORKFLOWS; do
+  COST=$(temporal workflow query --workflow-id "$wf" --query-type getProgress | jq -r '.metrics.totalCost')
+  echo "$wf: \$$COST"
+done
+```
+
+### Progress Notification
+
+Send notification when workflow reaches specific phase:
+
+```bash
+#!/bin/bash
+# notify-on-phase.sh
+
+WORKFLOW_ID="audit_shannon-1234567890"
+TARGET_PHASE="reporting"
+
+while true; do
+  PHASE=$(temporal workflow query --workflow-id "$WORKFLOW_ID" --query-type getProgress | jq -r '.currentPhase')
+  
+  if [ "$PHASE" = "$TARGET_PHASE" ]; then
+    echo "Workflow reached $TARGET_PHASE phase!"
+    # Send notification (email, Slack, etc.)
+    break
+  fi
+  
+  sleep 60
+done
+```
+
+### Parallel Workflow Tracking
+
+Monitor progress of multiple concurrent workflows:
+
+```bash
+#!/bin/bash
+# track-parallel-workflows.sh
+
+WORKFLOWS=("audit-1_shannon-123" "audit-2_shannon-456" "audit-3_shannon-789")
+
+for wf in "${WORKFLOWS[@]}"; do
+  PROGRESS=$(temporal workflow query --workflow-id "$wf" --query-type getProgress | jq '.completedPhases, .totalPhases')
+  echo "$wf: $PROGRESS phases completed"
+done
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Temporal Orchestration" icon="diagram-project" href="/concepts/temporal-orchestration">
+    Learn about Temporal workflow system
+  </Card>
+  <Card title="View Logs" icon="file-lines" href="/cli/logs">
+    Stream real-time workflow logs
+  </Card>
+  <Card title="Workspaces" icon="folder" href="/cli/workspaces">
+    List and manage all workspaces
+  </Card>
+  <Card title="Metrics Tracking" icon="chart-bar" href="/development/metrics-tracking">
+    Understanding metrics and cost tracking
+  </Card>
+</CardGroup>

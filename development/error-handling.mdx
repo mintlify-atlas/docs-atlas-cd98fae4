@@ -1,0 +1,479 @@
+---
+title: Error Handling
+description: Error codes, classification, and retry logic in Shannon
+---
+
+Shannon uses a structured error handling system with explicit error codes, classification, and configurable retry behavior. All error handling logic is centralized in `src/services/error-handling.ts`.
+
+## PentestError Class
+
+The core error class that extends `Error` with additional context:
+
+```typescript
+export class PentestError extends Error {
+  override name = 'PentestError' as const;
+  type: PentestErrorType;
+  retryable: boolean;
+  context: PentestErrorContext;
+  timestamp: string;
+  code?: ErrorCode;
+
+  constructor(
+    message: string,
+    type: PentestErrorType,
+    retryable: boolean = false,
+    context: PentestErrorContext = {},
+    code?: ErrorCode
+  ) {
+    super(message);
+    this.type = type;
+    this.retryable = retryable;
+    this.context = context;
+    this.timestamp = new Date().toISOString();
+    if (code !== undefined) {
+      this.code = code;
+    }
+  }
+}
+```
+
+Location: `src/services/error-handling.ts:18`
+
+### Fields
+
+- **`name`** - Always `'PentestError'` for type identification
+- **`type`** - Coarse error category (see `PentestErrorType`)
+- **`retryable`** - Whether the error should trigger a retry
+- **`context`** - Additional error context (agent name, attempt number, etc.)
+- **`timestamp`** - ISO 8601 timestamp when error occurred
+- **`code`** - Optional specific `ErrorCode` for reliable classification
+
+## ErrorCode Enum
+
+Specific error codes for reliable classification:
+
+```typescript
+export enum ErrorCode {
+  // Config errors
+  CONFIG_NOT_FOUND = 'CONFIG_NOT_FOUND',
+  CONFIG_VALIDATION_FAILED = 'CONFIG_VALIDATION_FAILED',
+  CONFIG_PARSE_ERROR = 'CONFIG_PARSE_ERROR',
+
+  // Agent execution errors
+  AGENT_EXECUTION_FAILED = 'AGENT_EXECUTION_FAILED',
+  OUTPUT_VALIDATION_FAILED = 'OUTPUT_VALIDATION_FAILED',
+
+  // Billing errors
+  API_RATE_LIMITED = 'API_RATE_LIMITED',
+  SPENDING_CAP_REACHED = 'SPENDING_CAP_REACHED',
+  INSUFFICIENT_CREDITS = 'INSUFFICIENT_CREDITS',
+
+  // Git errors
+  GIT_CHECKPOINT_FAILED = 'GIT_CHECKPOINT_FAILED',
+  GIT_ROLLBACK_FAILED = 'GIT_ROLLBACK_FAILED',
+
+  // Prompt errors
+  PROMPT_LOAD_FAILED = 'PROMPT_LOAD_FAILED',
+
+  // Validation errors
+  DELIVERABLE_NOT_FOUND = 'DELIVERABLE_NOT_FOUND',
+
+  // Preflight validation errors
+  REPO_NOT_FOUND = 'REPO_NOT_FOUND',
+  AUTH_FAILED = 'AUTH_FAILED',
+  BILLING_ERROR = 'BILLING_ERROR',
+}
+```
+
+Location: `src/types/errors.ts:18`
+
+### Error Code Categories
+
+#### Configuration Errors (Non-Retryable)
+
+- `CONFIG_NOT_FOUND` - Configuration file not found
+- `CONFIG_VALIDATION_FAILED` - Configuration failed JSON Schema validation
+- `CONFIG_PARSE_ERROR` - YAML parsing error
+
+**Retry:** No (requires manual fix)
+
+#### Agent Execution Errors
+
+- `AGENT_EXECUTION_FAILED` - Agent execution failed (retryable depends on error)
+- `OUTPUT_VALIDATION_FAILED` - Agent didn't produce expected output (retryable)
+
+**Retry:** Depends on specific error
+
+#### Billing Errors (Retryable)
+
+- `API_RATE_LIMITED` - API rate limit hit (429)
+- `SPENDING_CAP_REACHED` - Anthropic spending cap reached
+- `INSUFFICIENT_CREDITS` - Anthropic account out of credits
+
+**Retry:** Yes (with long backoff: 5-30 minutes)
+
+**Rationale:** Human can add credits or wait for spending cap to reset
+
+#### Git Errors (Non-Retryable)
+
+- `GIT_CHECKPOINT_FAILED` - Failed to create git checkpoint
+- `GIT_ROLLBACK_FAILED` - Failed to rollback git workspace
+
+**Retry:** No (indicates workspace corruption)
+
+#### Prompt Errors (Non-Retryable)
+
+- `PROMPT_LOAD_FAILED` - Failed to load prompt template
+
+**Retry:** No (requires manual fix)
+
+#### Validation Errors (Retryable)
+
+- `DELIVERABLE_NOT_FOUND` - Expected deliverable file not found
+
+**Retry:** Yes (agent may succeed on retry)
+
+#### Preflight Errors
+
+- `REPO_NOT_FOUND` - Target repository not found (non-retryable)
+- `AUTH_FAILED` - Authentication failed (non-retryable)
+- `BILLING_ERROR` - Billing error detected (retryable)
+
+## PentestErrorType
+
+Coarse error categories for classification:
+
+```typescript
+export type PentestErrorType =
+  | 'config'
+  | 'network'
+  | 'tool'
+  | 'prompt'
+  | 'filesystem'
+  | 'validation'
+  | 'billing'
+  | 'unknown';
+```
+
+Location: `src/types/errors.ts:49`
+
+These are used for grouping errors in logs and metrics. The `ErrorCode` enum provides more specific classification within these categories.
+
+## Error Classification
+
+### Classification Priority
+
+The `classifyErrorForTemporal` function uses a two-tier classification system:
+
+1. **Code-Based Classification (Preferred)** - If error is `PentestError` with `ErrorCode`, use reliable code-based logic
+2. **String-Based Classification (Fallback)** - For external errors (SDK, network), match error message patterns
+
+```typescript
+export function classifyErrorForTemporal(error: unknown): { type: string; retryable: boolean } {
+  // Code-based classification (preferred for internal errors)
+  if (error instanceof PentestError && error.code !== undefined) {
+    return classifyByErrorCode(error.code, error.retryable);
+  }
+
+  // String-based classification (fallback for external errors)
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  
+  // ... pattern matching logic
+}
+```
+
+Location: `src/services/error-handling.ts:179`
+
+### Retryable vs Non-Retryable
+
+**Retryable Errors** (Temporal will retry with backoff):
+
+- Network errors (connection, timeout, ECONNRESET)
+- Rate limiting (429, "too many requests")
+- Server errors (5xx, service unavailable, bad gateway)
+- MCP server errors ("mcp server", "terminated")
+- Max turns reached (agent may succeed with different approach)
+- Billing errors (spending cap, insufficient credits)
+- Output validation errors (agent may succeed on retry)
+
+**Non-Retryable Errors** (Temporal fails immediately):
+
+- Authentication errors (401, invalid API key)
+- Permission errors (403, forbidden)
+- Invalid request (400, malformed request)
+- Request too large (413)
+- Configuration errors (missing files, validation failed)
+- Execution limits (max turns, budget exceeded)
+- Invalid target URL
+
+### String Pattern Matching
+
+For external errors without error codes, the classifier uses pattern matching:
+
+```typescript
+const RETRYABLE_PATTERNS = [
+  'network',
+  'connection',
+  'timeout',
+  'econnreset',
+  'rate limit',
+  '429',
+  'server error',
+  '5xx',
+  'mcp server',
+  'terminated',
+  'max turns',
+];
+
+const NON_RETRYABLE_PATTERNS = [
+  'authentication',
+  'invalid prompt',
+  'out of memory',
+  'permission denied',
+  'invalid api key',
+];
+```
+
+Location: `src/services/error-handling.ts:60`
+
+## Retry Logic
+
+### Agent-Level Retries
+
+Agents are retried up to 3 times with exponential backoff:
+
+- **Attempt 1:** Immediate execution
+- **Attempt 2:** 1 minute delay
+- **Attempt 3:** 5 minutes delay
+
+Retry configuration is managed by Temporal's activity retry policy.
+
+### Billing Error Backoff
+
+Billing errors use extended backoff times:
+
+- **Minimum:** 5 minutes
+- **Maximum:** 30 minutes
+
+This allows time for:
+- Human to add credits to Anthropic account
+- Anthropic spending cap to reset (auto-resets after some duration)
+
+### Conservative Retry Classification
+
+Unknown errors default to **non-retryable** (fail-safe):
+
+```typescript
+export function isRetryableError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+
+  if (NON_RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern))) {
+    return false;
+  }
+
+  return RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern));
+}
+```
+
+Location: `src/services/error-handling.ts:100`
+
+**Rationale:** Better to fail fast on unknown errors than waste time and credits retrying permanent failures.
+
+## Error Context
+
+Errors carry additional context for debugging:
+
+```typescript
+export interface PentestErrorContext {
+  [key: string]: unknown;
+}
+```
+
+Location: `src/types/errors.ts:59`
+
+Common context fields:
+- `agentName` - Name of agent that failed
+- `attemptNumber` - Which retry attempt failed
+- `promptName` - Prompt template that failed to load
+- `originalError` - Original error message from external system
+
+## Temporal Integration
+
+Activities wrap errors in Temporal's `ApplicationFailure`:
+
+```typescript
+import { ApplicationFailure } from '@temporalio/activity';
+import { classifyErrorForTemporal } from '../services/error-handling.js';
+
+try {
+  // ... agent execution
+} catch (error) {
+  const { type, retryable } = classifyErrorForTemporal(error);
+  
+  throw ApplicationFailure.create({
+    message: error.message,
+    type,
+    nonRetryable: !retryable,
+  });
+}
+```
+
+This allows Temporal to make retry decisions based on error classification.
+
+## Spending Cap Detection
+
+Billing errors are detected using both API patterns and text patterns:
+
+```typescript
+// From src/utils/billing-detection.ts
+export function matchesBillingApiPattern(message: string): boolean {
+  return (
+    message.includes('invalid_request_error') &&
+    (message.includes('spending cap') || message.includes('insufficient credits'))
+  );
+}
+
+export function matchesBillingTextPattern(message: string): boolean {
+  return (
+    message.includes('spending cap') ||
+    message.includes('insufficient credits') ||
+    message.includes('credit balance')
+  );
+}
+```
+
+Location: `src/utils/billing-detection.ts`
+
+**Note:** Anthropic returns billing errors as 400 `invalid_request_error`, not 402 Payment Required.
+
+## Error Logging
+
+Errors are logged with structured context:
+
+```typescript
+export interface LogEntry {
+  timestamp: string;
+  context: string;
+  error: {
+    name: string;
+    message: string;
+    type: PentestErrorType;
+    retryable: boolean;
+    stack?: string;
+  };
+}
+```
+
+Location: `src/types/errors.ts:63`
+
+Logs are written to:
+- `audit-logs/{sessionId}/{agentName}/error.log` - Per-agent error logs
+- `audit-logs/{sessionId}/workflow.log` - Unified workflow log
+
+## Result Type
+
+Services use the `Result<T,E>` type for explicit error handling:
+
+```typescript
+export type Result<T, E> = Ok<T> | Err<E>;
+
+export interface Ok<T> {
+  readonly ok: true;
+  readonly value: T;
+}
+
+export interface Err<E> {
+  readonly ok: false;
+  readonly error: E;
+}
+```
+
+Location: `src/types/result.ts:18`
+
+This forces callers to handle errors explicitly:
+
+```typescript
+const result = await agentExecutionService.execute(agentName, input, auditSession, logger);
+
+if (result.ok) {
+  // Success path
+  const metrics = result.value;
+} else {
+  // Error path
+  const error = result.error;
+}
+```
+
+## Best Practices
+
+### Creating Errors
+
+Always include an `ErrorCode` when throwing `PentestError`:
+
+```typescript
+throw new PentestError(
+  'Configuration file not found',
+  'config',
+  false, // not retryable
+  { configPath },
+  ErrorCode.CONFIG_NOT_FOUND // always include code
+);
+```
+
+### Error Propagation
+
+Services return `Result<T,E>` instead of throwing:
+
+```typescript
+export async function loadConfig(path: string): Promise<Result<Config, PentestError>> {
+  if (!await fs.pathExists(path)) {
+    return err(new PentestError(
+      'Config not found',
+      'config',
+      false,
+      { path },
+      ErrorCode.CONFIG_NOT_FOUND
+    ));
+  }
+  
+  return ok(config);
+}
+```
+
+### Activity Error Handling
+
+Activities catch and classify errors:
+
+```typescript
+export async function executeAgentActivity(input: AgentInput): Promise<AgentResult> {
+  try {
+    const result = await service.execute(input);
+    
+    if (!result.ok) {
+      // Convert service error to Temporal ApplicationFailure
+      const { type, retryable } = classifyErrorForTemporal(result.error);
+      throw ApplicationFailure.create({
+        message: result.error.message,
+        type,
+        nonRetryable: !retryable,
+      });
+    }
+    
+    return result.value;
+  } catch (error) {
+    // Classify and rethrow unexpected errors
+    const { type, retryable } = classifyErrorForTemporal(error);
+    throw ApplicationFailure.create({
+      message: error.message,
+      type,
+      nonRetryable: !retryable,
+    });
+  }
+}
+```
+
+## Related Documentation
+
+- [Agent Registry](/development/agent-registry) - Agent definitions and execution flow
+- [Metrics Tracking](/development/metrics-tracking) - Error tracking in metrics
+- [Key Files](/development/key-files) - Error handling file locations

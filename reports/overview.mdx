@@ -1,0 +1,142 @@
+---
+title: Sample Reports Overview
+description: Introduction to Shannon's penetration testing reports and real-world vulnerability findings
+---
+
+## Introduction to Sample Reports
+
+Shannon's sample reports demonstrate real-world penetration testing capabilities against industry-standard vulnerable applications. These reports showcase Shannon's ability to discover, exploit, and document critical security vulnerabilities through autonomous AI-powered testing.
+
+## What to Expect
+
+Each sample report includes:
+
+- **Executive Summary**: High-level overview of findings organized by vulnerability type
+- **Network Reconnaissance**: Infrastructure analysis and security misconfigurations
+- **Exploitation Evidence**: Step-by-step proof-of-concept exploits with actual command outputs
+- **Reproducible PoCs**: Copy-and-paste commands that demonstrate verified vulnerabilities
+- **Impact Analysis**: Clear assessment of business and security risks
+
+## Key Characteristics
+
+### Proof by Exploitation
+
+Shannon follows a strict "No Exploit, No Report" policy. Every reported vulnerability includes:
+
+- Working proof-of-concept exploit code
+- Actual command outputs showing successful exploitation
+- Clear demonstration of security impact
+- Reproducible steps for verification
+
+If Shannon cannot successfully exploit a vulnerability to demonstrate real impact, it is not included in the report. This approach eliminates false positives and ensures every finding is actionable.
+
+### Real-World Testing Targets
+
+The sample reports demonstrate Shannon's performance against:
+
+- **OWASP Juice Shop**: 20+ vulnerabilities including auth bypass, database exfiltration, IDOR, SSRF
+- **c{api}tal API**: 15 critical vulnerabilities including root-level injection, auth bypass, mass assignment
+- **OWASP crAPI**: 15+ vulnerabilities including JWT attacks, database compromise, SSRF
+
+These are intentionally vulnerable applications maintained by security organizations to test penetration testing tools and methodologies.
+
+## How to Interpret Results
+
+### Vulnerability Severity Levels
+
+- **Critical**: Complete system compromise, authentication bypass, or remote code execution
+- **High**: Significant data exposure, privilege escalation, or business logic bypass
+- **Medium**: Information disclosure or targeted exploitation requiring user interaction
+- **Low**: Security misconfigurations with limited immediate impact
+
+### Report Structure
+
+Each vulnerability finding follows a consistent format:
+
+1. **Summary**: Location, overview, impact, and severity rating
+2. **Prerequisites**: Required access level or conditions for exploitation
+3. **Exploitation Steps**: Detailed command sequences with actual outputs
+4. **Proof of Impact**: Evidence demonstrating successful exploitation
+5. **Notes**: Technical details, code references, and remediation context
+
+### Understanding the Exploits
+
+The exploitation evidence sections contain:
+
+- **curl commands**: HTTP requests with headers and payloads
+- **Response data**: Actual JSON/text responses from the application
+- **File references**: Source code locations (e.g., `/routes/login.ts:34`)
+- **Database outputs**: Extracted credentials, schema information, or system data
+
+## Benchmark Performance
+
+### XBOW Benchmark Results
+
+Shannon Lite achieved a **96.15% success rate (100/104 exploits)** on the cleaned, hint-free XBOW security benchmark in white-box mode.
+
+**Performance by vulnerability type:**
+
+| Vulnerability Type | Success Rate | Challenges |
+|-------------------|--------------|------------|
+| Broken Authorization | 100% | 25/25 |
+| SQL Injection | 100% | 7/7 |
+| Blind SQL Injection | 100% | 3/3 |
+| SSRF / Misconfiguration | 95.45% | 21/22 |
+| XSS | 95.65% | 22/23 |
+| Server-Side Template Injection | 92.31% | 12/13 |
+| Command Injection | 90.91% | 10/11 |
+
+For complete benchmark methodology, failure analysis, and detailed results, see the [Benchmark Results](/reports/benchmark-results) page.
+
+## Methodology
+
+Shannon uses a structured five-phase approach:
+
+1. **Pre-Reconnaissance**: External scanning (nmap, subfinder, whatweb) + source code analysis
+2. **Reconnaissance**: Attack surface mapping from initial findings
+3. **Vulnerability Analysis**: Parallel analysis across injection, XSS, auth, authz, SSRF categories
+4. **Exploitation**: Parallel execution of real-world exploits to confirm vulnerabilities
+5. **Reporting**: Executive-level security assessment with verified findings only
+
+This "proof by exploitation" methodology ensures zero false positives by requiring successful exploitation before including any vulnerability in the final report.
+
+## Cost and Time
+
+Typical Shannon penetration test:
+
+- **Time**: 1 to 1.5 hours for complete assessment
+- **Cost**: ~$16 in API costs (using Claude 4.5 Sonnet)
+- **Frequency**: On-demand, can run on every deployment
+
+Compare to traditional pentests:
+
+- **Time**: Weeks to months, scheduled in advance
+- **Cost**: $10,000+ per engagement
+- **Frequency**: 1-2 times per year
+
+## Coverage
+
+Shannon currently targets the following exploitable vulnerability classes:
+
+- **Injection**: SQL, NoSQL, Command, XXE, YAML
+- **Cross-Site Scripting (XSS)**: Reflected, stored, DOM-based
+- **Broken Authentication**: Login bypass, weak credentials, JWT attacks
+- **Broken Authorization**: IDOR, privilege escalation, access control failures
+- **Server-Side Request Forgery (SSRF)**: Internal network access, metadata endpoints
+
+See the [Coverage and Roadmap](https://github.com/KeygraphHQ/shannon/blob/main/COVERAGE.md) for details on current and planned vulnerability coverage.
+
+## Next Steps
+
+Explore the detailed sample reports:
+
+- [OWASP Juice Shop Report](/reports/juice-shop): 20+ vulnerabilities across all OWASP categories
+- [c{api}tal API Report](/reports/capital-api): 15 critical API security vulnerabilities
+- [OWASP crAPI Report](/reports/crapi): 15+ vulnerabilities including advanced JWT attacks
+- [XBOW Benchmark Results](/reports/benchmark-results): 96.15% success rate with detailed analysis
+
+Or get started with Shannon:
+
+- [Installation Guide](/installation): Set up Shannon in your environment
+- [Quick Start](/quickstart): Run your first penetration test
+- [Configuration](/configuration/overview): Customize Shannon for your application

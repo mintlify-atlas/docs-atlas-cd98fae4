@@ -1,0 +1,572 @@
+---
+title: Core Modules
+description: Detailed documentation of Shannon's core modules and services
+---
+
+This document covers the implementation details of Shannon's core modules, focusing on the business logic layer and critical infrastructure.
+
+## Agent Registry (session-manager.ts)
+
+The agent registry is the single source of truth for all agents in the system.
+
+### Agent Definition Structure
+
+```typescript
+// src/session-manager.ts:14-108
+export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
+  'pre-recon': {
+    name: 'pre-recon',
+    displayName: 'Pre-recon agent',
+    prerequisites: [],                                   // No dependencies
+    promptTemplate: 'pre-recon-code',                    // Prompt file name
+    deliverableFilename: 'code_analysis_deliverable.md', // Output file
+    modelTier: 'large',                                  // Model size override
+  },
+  'recon': {
+    name: 'recon',
+    displayName: 'Recon agent',
+    prerequisites: ['pre-recon'],
+    promptTemplate: 'recon',
+    deliverableFilename: 'recon_deliverable.md',
+  },
+  // ... 11 more agents
+});
+```
+
+From `src/session-manager.ts:14-108`
+
+### Agent-to-Phase Mapping
+
+```typescript
+// src/session-manager.ts:114-128
+export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.freeze({
+  'pre-recon': 'pre-recon',
+  'recon': 'recon',
+  'injection-vuln': 'vulnerability-analysis',
+  'xss-vuln': 'vulnerability-analysis',
+  'auth-vuln': 'vulnerability-analysis',
+  'authz-vuln': 'vulnerability-analysis',
+  'ssrf-vuln': 'vulnerability-analysis',
+  'injection-exploit': 'exploitation',
+  'xss-exploit': 'exploitation',
+  'auth-exploit': 'exploitation',
+  'authz-exploit': 'exploitation',
+  'ssrf-exploit': 'exploitation',
+  'report': 'reporting',
+});
+```
+
+From `src/session-manager.ts:114-128`
+
+### Agent Validators
+
+Each agent has a validator that checks for required deliverables:
+
+```typescript
+// src/session-manager.ts:184-227
+export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
+  // Simple file existence check
+  'pre-recon': async (sourceDir: string): Promise<boolean> => {
+    const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
+    return await fs.pathExists(codeAnalysisFile);
+  },
+
+  // Queue validation for vulnerability agents
+  'injection-vuln': createVulnValidator('injection'),
+  // createVulnValidator checks both deliverable AND queue.json structure
+
+  // Evidence file check for exploit agents
+  'injection-exploit': createExploitValidator('injection'),
+});
+
+// Factory for vulnerability validators (src/session-manager.ts:131-142)
+function createVulnValidator(vulnType: VulnType): AgentValidator {
+  return async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
+    try {
+      await validateQueueAndDeliverable(vulnType, sourceDir);
+      return true;
+    } catch (error) {
+      logger.warn(`Queue validation failed for ${vulnType}: ${error.message}`);
+      return false;
+    }
+  };
+}
+```
+
+From `src/session-manager.ts:131-227`
+
+## Agent Execution Service
+
+The `AgentExecutionService` handles the complete agent lifecycle with 9 distinct phases.
+
+### Execution Pipeline
+
+```typescript
+// src/services/agent-execution.ts:93-233
+async execute(
+  agentName: AgentName,
+  input: AgentExecutionInput,
+  auditSession: AuditSession,
+  logger: ActivityLogger
+): Promise<Result<AgentEndResult, PentestError>> {
+  // 1. Load config (if provided)
+  const configResult = await this.configLoader.loadOptional(configPath);
+  if (isErr(configResult)) return configResult;
+  const distributedConfig = configResult.value;
+
+  // 2. Load prompt template
+  const promptTemplate = AGENTS[agentName].promptTemplate;
+  const prompt = await loadPrompt(
+    promptTemplate,
+    { webUrl, repoPath },
+    distributedConfig,
+    pipelineTestingMode,
+    logger
+  );
+
+  // 3. Create git checkpoint before execution
+  await createGitCheckpoint(repoPath, agentName, attemptNumber, logger);
+
+  // 4. Start audit logging
+  await auditSession.startAgent(agentName, prompt, attemptNumber);
+
+  // 5. Execute agent via Claude SDK
+  const result: ClaudePromptResult = await runClaudePrompt(
+    prompt, repoPath, '', agentName, agentName, 
+    auditSession, logger, AGENTS[agentName].modelTier
+  );
+
+  // 6. Spending cap check (defense-in-depth)
+  if (result.success && isSpendingCapBehavior(result.turns, result.cost, result.result)) {
+    return this.failAgent(/* rollback, audit, throw retryable error */);
+  }
+
+  // 7. Handle execution failure
+  if (!result.success) {
+    return this.failAgent(/* rollback, audit, throw */);
+  }
+
+  // 8. Validate output (check deliverables exist)
+  const validationPassed = await validateAgentOutput(result, agentName, repoPath, logger);
+  if (!validationPassed) {
+    return this.failAgent(/* rollback, audit, throw OUTPUT_VALIDATION_FAILED */);
+  }
+
+  // 9. Success path: commit git, record metrics, return
+  await commitGitSuccess(repoPath, agentName, result.model, logger);
+  const checkpoint = await getGitCommitHash(repoPath);
+  
+  const endResult: AgentEndResult = {
+    success: true,
+    duration_ms: result.duration,
+    cost_usd: result.cost,
+    model: result.model,
+    checkpoint,
+    attemptNumber,
+  };
+  
+  await auditSession.endAgent(agentName, endResult);
+  return ok(endResult);
+}
+```
+
+From `src/services/agent-execution.ts:93-233`
+
+### Git Checkpoint Strategy
+
+Every agent execution creates a git checkpoint for rollback:
+
+```typescript
+// src/services/git-manager.ts
+export async function createGitCheckpoint(
+  repoPath: string,
+  agentName: string,
+  attemptNumber: number,
+  logger: ActivityLogger
+): Promise<void> {
+  // Stage all changes
+  await executeGitCommandWithRetry(
+    ['git', 'add', '-A'],
+    repoPath,
+    'stage changes for checkpoint'
+  );
+
+  // Create checkpoint commit
+  const message = `[Shannon Checkpoint] ${agentName} (attempt ${attemptNumber})`;
+  await executeGitCommandWithRetry(
+    ['git', 'commit', '-m', message, '--allow-empty'],
+    repoPath,
+    'create checkpoint commit'
+  );
+
+  logger.info('Git checkpoint created', { agentName, attemptNumber });
+}
+
+export async function rollbackGitWorkspace(
+  repoPath: string,
+  agentName: string,
+  logger: ActivityLogger
+): Promise<void> {
+  // Reset to HEAD (undo uncommitted changes)
+  await executeGitCommandWithRetry(
+    ['git', 'reset', '--hard', 'HEAD'],
+    repoPath,
+    'rollback to checkpoint'
+  );
+
+  // Clean untracked files
+  await executeGitCommandWithRetry(
+    ['git', 'clean', '-fd'],
+    repoPath,
+    'clean untracked files after rollback'
+  );
+
+  logger.warn('Git workspace rolled back', { agentName });
+}
+```
+
+## Claude Executor (ai/claude-executor.ts)
+
+The Claude executor integrates with the Claude Agent SDK and handles message streaming, progress, and audit logging.
+
+### SDK Configuration
+
+```typescript
+// src/ai/claude-executor.ts:199-262
+export async function runClaudePrompt(
+  prompt: string,
+  sourceDir: string,
+  context: string,
+  description: string,
+  agentName: string | null,
+  auditSession: AuditSession | null,
+  logger: ActivityLogger,
+  modelTier: ModelTier = 'medium'
+): Promise<ClaudePromptResult> {
+  // 1. Configure MCP servers for this agent
+  const mcpServers = buildMcpServers(sourceDir, agentName, logger);
+
+  // 2. Build environment variables for SDK subprocesses
+  const sdkEnv: Record<string, string> = {
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS: '64000',
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    // ... OAuth, Bedrock, Vertex configs
+  };
+
+  // 3. Configure SDK options
+  const options = {
+    model: resolveModel(modelTier),  // Resolves large/medium/small to model IDs
+    maxTurns: 10_000,
+    cwd: sourceDir,
+    permissionMode: 'bypassPermissions' as const,
+    allowDangerouslySkipPermissions: true,
+    mcpServers,
+    env: sdkEnv,
+  };
+
+  // 4. Process message stream
+  for await (const message of query({ prompt: fullPrompt, options })) {
+    // Handle assistant, tool_start, tool_end, completion messages
+    // Log to audit system
+    // Track costs and turns
+  }
+}
+```
+
+From `src/ai/claude-executor.ts:199-262`
+
+### MCP Server Configuration
+
+```typescript
+// src/ai/claude-executor.ts:59-114
+function buildMcpServers(
+  sourceDir: string,
+  agentName: string | null,
+  logger: ActivityLogger
+): Record<string, McpServer> {
+  // 1. Shannon-helper MCP (always present)
+  const shannonHelperServer = createShannonHelperServer(sourceDir);
+  const mcpServers: Record<string, McpServer> = {
+    'shannon-helper': shannonHelperServer,
+  };
+
+  // 2. Look up agent's Playwright MCP assignment
+  if (agentName) {
+    const promptTemplate = AGENTS[agentName].promptTemplate;
+    const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate];
+
+    if (playwrightMcpName) {
+      logger.info(`Assigned ${agentName} -> ${playwrightMcpName}`);
+
+      const userDataDir = `/tmp/${playwrightMcpName}`;
+      const isDocker = process.env.SHANNON_DOCKER === 'true';
+
+      // 3. Configure Playwright MCP with Docker/local browser handling
+      mcpServers[playwrightMcpName] = {
+        type: 'stdio',
+        command: 'npx',
+        args: [
+          '@playwright/mcp@latest',
+          '--isolated',
+          '--user-data-dir', userDataDir,
+          ...(isDocker ? ['--executable-path', '/usr/bin/chromium-browser'] : []),
+        ],
+        env: {
+          PLAYWRIGHT_HEADLESS: 'true',
+          ...(isDocker && { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }),
+        },
+      };
+    }
+  }
+
+  return mcpServers;
+}
+```
+
+From `src/ai/claude-executor.ts:59-114`
+
+### Output Validation
+
+```typescript
+// src/ai/claude-executor.ts:153-195
+export async function validateAgentOutput(
+  result: ClaudePromptResult,
+  agentName: string | null,
+  sourceDir: string,
+  logger: ActivityLogger
+): Promise<boolean> {
+  // 1. Check if agent completed successfully
+  if (!result.success || !result.result) {
+    logger.error('Validation failed: Agent execution was unsuccessful');
+    return false;
+  }
+
+  // 2. Get validator function for this agent
+  const validator = agentName 
+    ? AGENT_VALIDATORS[agentName as keyof typeof AGENT_VALIDATORS] 
+    : undefined;
+
+  if (!validator) {
+    logger.warn(`No validator found for agent "${agentName}" - assuming success`);
+    return true;
+  }
+
+  // 3. Apply validation function (checks deliverable existence)
+  const validationResult = await validator(sourceDir, logger);
+
+  if (validationResult) {
+    logger.info('Validation passed: Required files/structure present');
+  } else {
+    logger.error('Validation failed: Missing required deliverable files');
+  }
+
+  return validationResult;
+}
+```
+
+From `src/ai/claude-executor.ts:153-195`
+
+## Config Parser (config-parser.ts)
+
+The config parser provides YAML parsing with JSON Schema validation and security checks.
+
+### Parsing Pipeline
+
+```typescript
+// src/config-parser.ts:179-266
+export const parseConfig = async (configPath: string): Promise<Config> => {
+  // 1. Verify file exists
+  if (!(await fs.pathExists(configPath))) {
+    throw new PentestError(
+      `Configuration file not found: ${configPath}`,
+      'config', false, { configPath },
+      ErrorCode.CONFIG_NOT_FOUND
+    );
+  }
+
+  // 2. Check file size (max 1MB)
+  const stats = await fs.stat(configPath);
+  if (stats.size > 1024 * 1024) {
+    throw new PentestError(
+      `Configuration file too large: ${stats.size} bytes`,
+      'config', false
+    );
+  }
+
+  // 3. Read and parse YAML with FAILSAFE_SCHEMA
+  const configContent = await fs.readFile(configPath, 'utf8');
+  const config = yaml.load(configContent, {
+    schema: yaml.FAILSAFE_SCHEMA,  // Only basic YAML types, no JS evaluation
+    json: false,
+    filename: configPath,
+  });
+
+  // 4. Validate schema
+  validateConfig(config as Config);
+
+  return config as Config;
+};
+```
+
+From `src/config-parser.ts:179-266`
+
+### Security Validation
+
+```typescript
+// src/config-parser.ts:46-52, 315-382
+const DANGEROUS_PATTERNS: RegExp[] = [
+  /\.\.\//, // Path traversal
+  /[<>]/,   // HTML/XML injection
+  /javascript:/i,
+  /data:/i,
+  /file:/i,
+];
+
+const performSecurityValidation = (config: Config): void => {
+  if (config.authentication) {
+    const auth = config.authentication;
+
+    // Check login_url for dangerous patterns
+    if (auth.login_url) {
+      for (const pattern of DANGEROUS_PATTERNS) {
+        if (pattern.test(auth.login_url)) {
+          throw new PentestError(
+            `authentication.login_url contains potentially dangerous pattern: ${pattern.source}`,
+            'config', false, { field: 'login_url', pattern: pattern.source },
+            ErrorCode.CONFIG_VALIDATION_FAILED
+          );
+        }
+      }
+    }
+
+    // Validate credentials, login_flow, etc.
+  }
+
+  if (config.rules) {
+    validateRulesSecurity(config.rules.avoid, 'avoid');
+    validateRulesSecurity(config.rules.focus, 'focus');
+    checkForDuplicates(config.rules.avoid || [], 'avoid');
+    checkForConflicts(config.rules.avoid, config.rules.focus);
+  }
+};
+```
+
+From `src/config-parser.ts:46-382`
+
+## Prompt Manager (services/prompt-manager.ts)
+
+The prompt manager loads prompt templates and performs variable substitution.
+
+### Template Loading
+
+```typescript
+export async function loadPrompt(
+  templateName: string,
+  variables: { webUrl: string; repoPath: string },
+  config: DistributedConfig | null,
+  pipelineTestingMode: boolean,
+  logger: ActivityLogger
+): Promise<string> {
+  // 1. Load base template from prompts/{templateName}.txt
+  const templatePath = path.join('./prompts', `${templateName}.txt`);
+  let template = await fs.readFile(templatePath, 'utf-8');
+
+  // 2. Variable substitution
+  template = template.replace(/{{TARGET_URL}}/g, variables.webUrl);
+  template = template.replace(/{{REPO_PATH}}/g, variables.repoPath);
+
+  // 3. Config context injection
+  if (config) {
+    const configContext = formatConfigContext(config);
+    template = template.replace(/{{CONFIG_CONTEXT}}/g, configContext);
+  }
+
+  // 4. Include shared partials (login instructions, etc.)
+  template = await includePartials(template);
+
+  // 5. Testing mode shortening (if enabled)
+  if (pipelineTestingMode) {
+    template = shortenPromptForTesting(template);
+  }
+
+  return template;
+}
+```
+
+## Error Handling Service
+
+The error handling service provides error classification and structured error types.
+
+### PentestError Structure
+
+```typescript
+export class PentestError extends Error {
+  readonly code: ErrorCode;
+  readonly category: PentestErrorType;
+  readonly retryable: boolean;
+  readonly context: Record<string, unknown>;
+
+  constructor(
+    message: string,
+    category: PentestErrorType,
+    retryable: boolean,
+    context: Record<string, unknown> = {},
+    code?: ErrorCode
+  ) {
+    super(message);
+    this.name = 'PentestError';
+    this.category = category;
+    this.retryable = retryable;
+    this.context = context;
+    this.code = code || this.inferCodeFromCategory(category);
+  }
+}
+
+// Error categories
+export type PentestErrorType =
+  | 'authentication'
+  | 'billing'
+  | 'config'
+  | 'filesystem'
+  | 'network'
+  | 'validation'
+  | 'prompt'
+  | 'sdk';
+```
+
+### Error Classification for Temporal
+
+```typescript
+export function classifyErrorForTemporal(error: unknown): {
+  type: string;
+  retryable: boolean;
+} {
+  if (error instanceof PentestError) {
+    return {
+      type: errorCodeToTemporalType(error.code),
+      retryable: error.retryable,
+    };
+  }
+
+  // Classify by error message patterns
+  const message = error instanceof Error ? error.message : String(error);
+  
+  if (/spending.cap|rate.limit|overloaded/i.test(message)) {
+    return { type: 'BillingError', retryable: true };
+  }
+  
+  if (/authentication|unauthorized|forbidden/i.test(message)) {
+    return { type: 'AuthenticationError', retryable: false };
+  }
+
+  // Default: retryable
+  return { type: 'UnknownError', retryable: true };
+}
+```
+
+## Related Documentation
+
+- [Architecture Overview](/development/architecture-overview) - System design patterns
+- [Temporal Workflow](/development/temporal-workflow) - Workflow orchestration
+- [MCP Integration](/development/mcp-integration) - MCP server details
+- [Audit System](/development/audit-system) - Logging implementation

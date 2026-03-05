@@ -1,0 +1,101 @@
+---
+title: Security Overview
+description: Understanding Shannon's security testing approach and methodology
+---
+
+## What Shannon Tests
+
+Shannon is an AI-powered penetration testing framework that delivers actual exploits, not just alerts. It autonomously hunts for attack vectors in your code, then uses its built-in browser to execute real exploits to prove vulnerabilities are actually exploitable.
+
+### White-Box Approach
+
+<Warning>
+**White-box only.** Shannon Lite is designed for **white-box (source-available)** application security testing. It expects access to your application's source code and repository layout.
+</Warning>
+
+Shannon combines the deep context of white-box source code analysis with the real-world validation of black-box dynamic exploitation. This hybrid approach enables:
+
+- **Code-Aware Dynamic Testing**: Analyzes your source code to intelligently guide its attack strategy
+- **Live Exploitation**: Performs browser and command-line based exploits on the running application to confirm real-world risk
+- **Structured Data Flow Analysis**: Traces user input to dangerous sinks for vulnerabilities like Injection and SSRF
+- **Context-Driven Attacks**: Leverages source code insights to craft targeted, high-probability exploits
+
+### Proof-by-Exploitation Methodology
+
+Shannon enforces a strict **"No Exploit, No Report"** policy to minimize false positives:
+
+1. **Hypothesis Generation**: Specialized agents analyze code to identify potential vulnerability paths
+2. **Active Exploitation**: Dedicated exploit agents attempt to execute real-world attacks
+3. **Impact Demonstration**: Only vulnerabilities that can be successfully exploited are reported
+4. **Reproducible Proof-of-Concepts**: Every finding includes copy-and-paste PoCs for validation
+
+This approach ensures that reports focus exclusively on proven, actionable risks rather than theoretical possibilities.
+
+### Integration with Security Tools
+
+Shannon enhances its discovery phase by leveraging leading reconnaissance and testing tools:
+
+- **Nmap**: Network infrastructure mapping and service enumeration
+- **Subfinder**: Subdomain discovery and DNS reconnaissance
+- **WhatWeb**: Web application fingerprinting and technology detection
+- **Schemathesis**: API testing and specification validation
+- **Playwright**: Browser automation for dynamic exploitation
+- **Custom Exploit Scripts**: AI-generated exploit code for validation
+
+### Multi-Agent Architecture
+
+Shannon emulates a human penetration tester's methodology through four distinct phases:
+
+```
+                    ┌──────────────────────┐
+                    │    Reconnaissance    │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────┴───────────┐
+                    │          │           │
+                    ▼          ▼           ▼
+        ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+        │ Vuln Analysis   │ │ Vuln Analysis   │ │      ...        │
+        │  (Injection)    │ │     (XSS)       │ │                 │
+        └─────────┬───────┘ └─────────┬───────┘ └─────────┬───────┘
+                  │                   │                   │
+                  ▼                   ▼                   ▼
+        ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+        │  Exploitation   │ │  Exploitation   │ │      ...        │
+        │  (Injection)    │ │     (XSS)       │ │                 │
+        └─────────┬───────┘ └─────────┬───────┘ └─────────┬───────┘
+                  │                   │                   │
+                  └─────────┬─────────┴───────────────────┘
+                            │
+                            ▼
+                    ┌──────────────────────┐
+                    │      Reporting       │
+                    └──────────────────────┘
+```
+
+#### Phase 1: Reconnaissance
+Builds a comprehensive map of the application's attack surface by analyzing source code, integrating with reconnaissance tools, and performing live application exploration.
+
+#### Phase 2: Vulnerability Analysis
+Specialized agents for each OWASP category hunt for potential flaws in parallel, performing structured data flow analysis and producing hypothesized exploitable paths.
+
+#### Phase 3: Exploitation
+Dedicated exploit agents validate hypotheses by executing real-world attacks using browser automation, command-line tools, and custom scripts.
+
+#### Phase 4: Reporting
+Compiles validated findings into a professional report with reproducible Proof-of-Concepts, focusing exclusively on proven risks.
+
+### Autonomous Operation
+
+Shannon is fully autonomous from start to finish:
+
+- **Single Command Launch**: Start a complete pentest with one command
+- **Advanced Authentication**: Handles 2FA/TOTP logins and "Sign in with Google" automatically
+- **Browser Navigation**: Autonomous exploration of the application
+- **Zero Intervention**: Complete analysis and exploitation without human interaction
+- **Professional Reporting**: Final report delivered automatically
+
+### Parallel Processing
+
+Shannon parallelizes the most time-intensive phases, running analysis and exploitation for all vulnerability types concurrently to deliver faster results.

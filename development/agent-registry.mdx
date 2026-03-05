@@ -1,0 +1,386 @@
+---
+title: Agent Registry
+description: Complete reference for Shannon's AGENTS registry and agent definitions
+---
+
+The `AGENTS` registry in `src/session-manager.ts` is the single source of truth for all agent definitions in Shannon. It defines each agent's configuration, dependencies, and execution parameters.
+
+## AGENTS Registry
+
+The complete registry is a frozen record mapping agent names to their definitions:
+
+```typescript
+export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
+  'pre-recon': { /* ... */ },
+  'recon': { /* ... */ },
+  // ... 13 agents total
+});
+```
+
+Location: `src/session-manager.ts:14`
+
+## AgentDefinition Interface
+
+Each agent is defined by the `AgentDefinition` interface:
+
+```typescript
+export interface AgentDefinition {
+  name: AgentName;
+  displayName: string;
+  prerequisites: AgentName[];
+  promptTemplate: string;
+  deliverableFilename: string;
+  modelTier?: 'small' | 'medium' | 'large';
+}
+```
+
+Location: `src/types/agents.ts:55`
+
+### Field Descriptions
+
+- **`name`** - Unique agent identifier (must match `AgentName` type)
+- **`displayName`** - Human-readable name for logging and UI
+- **`prerequisites`** - Array of agent names that must complete before this agent runs
+- **`promptTemplate`** - Name of the prompt template file in `prompts/` (without `.txt` extension)
+- **`deliverableFilename`** - Expected output filename in `deliverables/` directory
+- **`modelTier`** - Optional model size hint ('small', 'medium', 'large'). Defaults to 'medium' if not specified
+
+<Warning>
+  The `deliverableFilename` values must match `mcp-server/src/types/deliverables.ts:DELIVERABLE_FILENAMES` to ensure the MCP server can save files correctly.
+</Warning>
+
+## Agent Types
+
+All agent names are derived from the `ALL_AGENTS` constant:
+
+```typescript
+export const ALL_AGENTS = [
+  'pre-recon',
+  'recon',
+  'injection-vuln',
+  'xss-vuln',
+  'auth-vuln',
+  'ssrf-vuln',
+  'authz-vuln',
+  'injection-exploit',
+  'xss-exploit',
+  'auth-exploit',
+  'ssrf-exploit',
+  'authz-exploit',
+  'report',
+] as const;
+
+export type AgentName = typeof ALL_AGENTS[number];
+```
+
+Location: `src/types/agents.ts:15`
+
+## Agent Definitions
+
+### Phase 1: Pre-Reconnaissance
+
+```typescript
+'pre-recon': {
+  name: 'pre-recon',
+  displayName: 'Pre-recon agent',
+  prerequisites: [],
+  promptTemplate: 'pre-recon-code',
+  deliverableFilename: 'code_analysis_deliverable.md',
+  modelTier: 'large',
+}
+```
+
+**Purpose:** External scans (nmap, subfinder, whatweb) + source code analysis
+
+**Prerequisites:** None (first agent in pipeline)
+
+**Model Tier:** Large (complex code analysis)
+
+### Phase 2: Reconnaissance
+
+```typescript
+'recon': {
+  name: 'recon',
+  displayName: 'Recon agent',
+  prerequisites: ['pre-recon'],
+  promptTemplate: 'recon',
+  deliverableFilename: 'recon_deliverable.md',
+}
+```
+
+**Purpose:** Attack surface mapping from pre-recon findings
+
+**Prerequisites:** `pre-recon`
+
+**Model Tier:** Medium (default)
+
+### Phase 3: Vulnerability Analysis
+
+Five agents run in parallel:
+
+#### Injection Vulnerabilities
+
+```typescript
+'injection-vuln': {
+  name: 'injection-vuln',
+  displayName: 'Injection vuln agent',
+  prerequisites: ['recon'],
+  promptTemplate: 'vuln-injection',
+  deliverableFilename: 'injection_analysis_deliverable.md',
+}
+```
+
+**Purpose:** SQL injection, command injection, LDAP injection, etc.
+
+#### XSS Vulnerabilities
+
+```typescript
+'xss-vuln': {
+  name: 'xss-vuln',
+  displayName: 'XSS vuln agent',
+  prerequisites: ['recon'],
+  promptTemplate: 'vuln-xss',
+  deliverableFilename: 'xss_analysis_deliverable.md',
+}
+```
+
+**Purpose:** Cross-site scripting (reflected, stored, DOM-based)
+
+#### Authentication Vulnerabilities
+
+```typescript
+'auth-vuln': {
+  name: 'auth-vuln',
+  displayName: 'Auth vuln agent',
+  prerequisites: ['recon'],
+  promptTemplate: 'vuln-auth',
+  deliverableFilename: 'auth_analysis_deliverable.md',
+}
+```
+
+**Purpose:** Authentication bypass, weak credentials, session management
+
+#### SSRF Vulnerabilities
+
+```typescript
+'ssrf-vuln': {
+  name: 'ssrf-vuln',
+  displayName: 'SSRF vuln agent',
+  prerequisites: ['recon'],
+  promptTemplate: 'vuln-ssrf',
+  deliverableFilename: 'ssrf_analysis_deliverable.md',
+}
+```
+
+**Purpose:** Server-side request forgery
+
+#### Authorization Vulnerabilities
+
+```typescript
+'authz-vuln': {
+  name: 'authz-vuln',
+  displayName: 'Authz vuln agent',
+  prerequisites: ['recon'],
+  promptTemplate: 'vuln-authz',
+  deliverableFilename: 'authz_analysis_deliverable.md',
+}
+```
+
+**Purpose:** Authorization bypass, privilege escalation, IDOR
+
+### Phase 4: Exploitation
+
+Five agents run in parallel, conditional on vulnerability findings:
+
+```typescript
+'injection-exploit': {
+  name: 'injection-exploit',
+  displayName: 'Injection exploit agent',
+  prerequisites: ['injection-vuln'],
+  promptTemplate: 'exploit-injection',
+  deliverableFilename: 'injection_exploitation_evidence.md',
+}
+
+'xss-exploit': {
+  name: 'xss-exploit',
+  displayName: 'XSS exploit agent',
+  prerequisites: ['xss-vuln'],
+  promptTemplate: 'exploit-xss',
+  deliverableFilename: 'xss_exploitation_evidence.md',
+}
+
+'auth-exploit': {
+  name: 'auth-exploit',
+  displayName: 'Auth exploit agent',
+  prerequisites: ['auth-vuln'],
+  promptTemplate: 'exploit-auth',
+  deliverableFilename: 'auth_exploitation_evidence.md',
+}
+
+'ssrf-exploit': {
+  name: 'ssrf-exploit',
+  displayName: 'SSRF exploit agent',
+  prerequisites: ['ssrf-vuln'],
+  promptTemplate: 'exploit-ssrf',
+  deliverableFilename: 'ssrf_exploitation_evidence.md',
+}
+
+'authz-exploit': {
+  name: 'authz-exploit',
+  displayName: 'Authz exploit agent',
+  prerequisites: ['authz-vuln'],
+  promptTemplate: 'exploit-authz',
+  deliverableFilename: 'authz_exploitation_evidence.md',
+}
+```
+
+**Purpose:** Exploit confirmed vulnerabilities with proof-of-concept
+
+**Conditional Execution:** Each exploit agent only runs if its corresponding vulnerability agent found exploitable vulnerabilities (validated via queue validation)
+
+### Phase 5: Reporting
+
+```typescript
+'report': {
+  name: 'report',
+  displayName: 'Report agent',
+  prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'],
+  promptTemplate: 'report-executive',
+  deliverableFilename: 'comprehensive_security_assessment_report.md',
+  modelTier: 'small',
+}
+```
+
+**Purpose:** Executive-level security report synthesizing all findings
+
+**Prerequisites:** All five exploitation agents
+
+**Model Tier:** Small (report generation)
+
+## Agent Validators
+
+Each agent has a validator function that verifies successful completion:
+
+```typescript
+export type AgentValidator = (sourceDir: string, logger: ActivityLogger) => Promise<boolean>;
+
+export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
+  // Deliverable-based validation
+  'pre-recon': async (sourceDir: string): Promise<boolean> => {
+    const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
+    return await fs.pathExists(codeAnalysisFile);
+  },
+  
+  // Queue-based validation (vulnerability agents)
+  'injection-vuln': createVulnValidator('injection'),
+  
+  // Evidence-based validation (exploitation agents)
+  'injection-exploit': createExploitValidator('injection'),
+  
+  // ... other agents
+});
+```
+
+Location: `src/session-manager.ts:184`
+
+### Validator Types
+
+1. **Deliverable Validators** - Check for existence of deliverable file (pre-recon, recon, report)
+2. **Queue Validators** - Validate both deliverable and queue.json (vulnerability agents)
+3. **Evidence Validators** - Check for exploitation evidence file (exploitation agents)
+
+## Phase Mapping
+
+Agents are mapped to five pipeline phases for metrics aggregation:
+
+```typescript
+export type PhaseName = 'pre-recon' | 'recon' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
+
+export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.freeze({
+  'pre-recon': 'pre-recon',
+  'recon': 'recon',
+  'injection-vuln': 'vulnerability-analysis',
+  'xss-vuln': 'vulnerability-analysis',
+  'auth-vuln': 'vulnerability-analysis',
+  'authz-vuln': 'vulnerability-analysis',
+  'ssrf-vuln': 'vulnerability-analysis',
+  'injection-exploit': 'exploitation',
+  'xss-exploit': 'exploitation',
+  'auth-exploit': 'exploitation',
+  'authz-exploit': 'exploitation',
+  'ssrf-exploit': 'exploitation',
+  'report': 'reporting',
+});
+```
+
+Location: `src/session-manager.ts:114`
+
+## MCP Agent Mapping
+
+Each agent is assigned to a specific Playwright MCP server instance to prevent browser conflicts:
+
+```typescript
+export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze({
+  'pre-recon-code': 'playwright-agent1',
+  'recon': 'playwright-agent2',
+  'vuln-injection': 'playwright-agent1',
+  'vuln-xss': 'playwright-agent2',
+  'vuln-auth': 'playwright-agent3',
+  'vuln-ssrf': 'playwright-agent4',
+  'vuln-authz': 'playwright-agent5',
+  'exploit-injection': 'playwright-agent1',
+  'exploit-xss': 'playwright-agent2',
+  'exploit-auth': 'playwright-agent3',
+  'exploit-ssrf': 'playwright-agent4',
+  'exploit-authz': 'playwright-agent5',
+  'report-executive': 'playwright-agent3',
+});
+```
+
+Location: `src/session-manager.ts:154`
+
+**Key:** Prompt template name (not agent name)
+
+**Value:** Playwright agent instance (`playwright-agent1` through `playwright-agent5`)
+
+## Vulnerability Types
+
+Vulnerability agents work with specific vulnerability types:
+
+```typescript
+export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+```
+
+Location: `src/types/agents.ts:67`
+
+## Adding a New Agent
+
+1. **Define agent in `AGENTS` registry** (`src/session-manager.ts`)
+   - Add entry with name, displayName, prerequisites, promptTemplate, deliverableFilename, modelTier
+
+2. **Update `ALL_AGENTS` array** (`src/types/agents.ts`)
+   - Add agent name to maintain execution order
+
+3. **Create prompt template** (`prompts/`)
+   - Create `{promptTemplate}.txt` with agent instructions
+
+4. **Add validator** (`src/session-manager.ts:AGENT_VALIDATORS`)
+   - Implement validation logic for agent output
+
+5. **Add phase mapping** (`src/session-manager.ts:AGENT_PHASE_MAP`)
+   - Map agent to appropriate phase for metrics
+
+6. **Add MCP mapping** (`src/session-manager.ts:MCP_AGENT_MAPPING`)
+   - Assign Playwright instance to prevent conflicts
+
+7. **Register activity** (`src/temporal/activities.ts`)
+   - Add thin activity wrapper with heartbeat loop
+
+8. **Add to workflow** (`src/temporal/workflows.ts`)
+   - Register activity in appropriate phase
+
+## Related Documentation
+
+- [Key Files](/development/key-files) - File locations and directory structure
+- [Error Handling](/development/error-handling) - Error classification for agent failures
+- [Metrics Tracking](/development/metrics-tracking) - Agent execution metrics

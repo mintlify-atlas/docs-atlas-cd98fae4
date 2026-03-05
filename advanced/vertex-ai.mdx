@@ -1,0 +1,110 @@
+---
+title: Google Vertex AI Integration
+description: Use Google Cloud Vertex AI instead of Anthropic API keys
+---
+
+Shannon supports [Google Vertex AI](https://cloud.google.com/vertex-ai) as an alternative to using Anthropic API keys directly.
+
+## Setup Instructions
+
+<Steps>
+  <Step title="Create a GCP service account">
+    1. Navigate to the [GCP Console](https://console.cloud.google.com/iam-admin/serviceaccounts)
+    2. Create a service account with the `roles/aiplatform.user` role
+    3. Download the JSON key file for the service account
+  </Step>
+
+  <Step title="Place the key file in the credentials directory">
+    ```bash
+    mkdir -p ./credentials
+    cp /path/to/your-sa-key.json ./credentials/gcp-sa-key.json
+    ```
+  </Step>
+
+  <Step title="Add GCP configuration to .env">
+    Create or edit your `.env` file:
+
+    ```bash
+    CLAUDE_CODE_USE_VERTEX=1
+    CLOUD_ML_REGION=us-east5
+    ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
+    GOOGLE_APPLICATION_CREDENTIALS=./credentials/gcp-sa-key.json
+
+    # Set models with Vertex AI model IDs
+    ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
+    ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
+    ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+    ```
+  </Step>
+
+  <Step title="Run Shannon">
+    Run Shannon as usual — it will automatically use Vertex AI:
+
+    ```bash
+    ./shannon start URL=https://example.com REPO=repo-name
+    ```
+  </Step>
+</Steps>
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CLAUDE_CODE_USE_VERTEX` | Yes | Set to `1` to enable Vertex AI mode |
+| `CLOUD_ML_REGION` | Yes | GCP region (e.g., `us-east5`) or `global` |
+| `ANTHROPIC_VERTEX_PROJECT_ID` | Yes | Your GCP project ID |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Yes | Path to service account JSON key file |
+| `ANTHROPIC_SMALL_MODEL` | Yes | Vertex AI model ID for small tasks (Haiku) |
+| `ANTHROPIC_MEDIUM_MODEL` | Yes | Vertex AI model ID for medium tasks (Sonnet) |
+| `ANTHROPIC_LARGE_MODEL` | Yes | Vertex AI model ID for large tasks (Opus) |
+
+## Model Tiers
+
+Shannon uses three model tiers optimized for different tasks:
+
+- **Small** (`claude-haiku-4-5@20251001`) — Used for summarization and lightweight tasks
+- **Medium** (`claude-sonnet-4-6`) — Used for security analysis and vulnerability detection
+- **Large** (`claude-opus-4-6`) — Used for deep reasoning and complex exploitation
+
+## Region Configuration
+
+- Set `CLOUD_ML_REGION=global` for global endpoints
+- Or use a specific region like `us-east5` for regional endpoints
+
+<Note>
+Some models may not be available on global endpoints. Check the [Vertex AI Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) for region availability.
+</Note>
+
+## Service Account Permissions
+
+Your service account needs the following IAM role:
+
+- `roles/aiplatform.user` — Required for accessing Vertex AI models
+
+To assign this role:
+
+1. Go to the [IAM page](https://console.cloud.google.com/iam-admin/iam) in GCP Console
+2. Find your service account
+3. Click "Edit"
+4. Add the `AI Platform User` role
+5. Save changes
+
+## Example Configuration
+
+Here's a complete `.env` example for Google Vertex AI:
+
+```bash
+# Google Vertex AI Configuration
+CLAUDE_CODE_USE_VERTEX=1
+CLOUD_ML_REGION=us-east5
+ANTHROPIC_VERTEX_PROJECT_ID=my-gcp-project
+GOOGLE_APPLICATION_CREDENTIALS=./credentials/gcp-sa-key.json
+
+# Model Configuration
+ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
+ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
+ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+
+# Optional: Increase output tokens for better results
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+```

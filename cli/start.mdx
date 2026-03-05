@@ -1,0 +1,357 @@
+---
+title: './shannon start'
+description: 'Start a new penetration testing workflow'
+icon: 'play'
+---
+
+The `start` command launches a new AI-powered penetration testing workflow against a target URL with access to the source code repository.
+
+## Basic Usage
+
+```bash
+./shannon start URL=<url> REPO=<name>
+```
+
+<ParamField path="URL" type="string" required>
+  Target URL to test (e.g., `https://example.com` or `http://localhost:3000`)
+  
+  - Must include protocol (`http://` or `https://`)
+  - Can be external URLs or local applications
+  - For Docker-hosted local apps, use `host.docker.internal` instead of `localhost`
+</ParamField>
+
+<ParamField path="REPO" type="string" required>
+  Repository folder name under `./repos/`
+  
+  - Must be a folder name, not an absolute path
+  - Repository must exist at `./repos/<repo-name>/`
+  - Clone or symlink your repository before running
+  
+  ```bash
+  # Clone repository
+  git clone https://github.com/org/repo.git ./repos/my-repo
+  
+  # Or symlink existing repository
+  ln -s /path/to/repo ./repos/my-repo
+  ```
+</ParamField>
+
+## Configuration Options
+
+### Workflow Configuration
+
+<ParamField path="CONFIG" type="string">
+  Path to YAML configuration file
+  
+  - Defines authentication settings (credentials, MFA, TOTP)
+  - Configures testing scope and exclusions
+  - Sets agent-specific parameters
+  - See [YAML Configuration](/configuration/yaml-config) for details
+  
+  ```bash
+  ./shannon start URL=https://example.com REPO=my-repo \
+    CONFIG=./configs/production.yaml
+  ```
+</ParamField>
+
+<ParamField path="OUTPUT" type="string" default="./audit-logs/">
+  Custom output directory for reports and audit logs
+  
+  - Directory will be created if it doesn't exist
+  - Permissions automatically set for container access (chmod 777)
+  - Workflow logs saved to `<OUTPUT>/<workspace-id>/workflow.log`
+  - Audit data saved to `<OUTPUT>/<workspace-id>/`
+  
+  ```bash
+  ./shannon start URL=https://example.com REPO=my-repo \
+    OUTPUT=./security-reports
+  ```
+</ParamField>
+
+<ParamField path="WORKSPACE" type="string">
+  Named workspace for resume capability
+  
+  - Auto-resumes if workspace exists
+  - Creates new workspace if name is new
+  - Skips already-completed agents on resume
+  - Validates deliverables before resuming
+  - See [Workspaces & Resume](/advanced/workspaces-resume) for details
+  
+  ```bash
+  # Create named workspace
+  ./shannon start URL=https://example.com REPO=my-repo \
+    WORKSPACE=q1-audit
+  
+  # Resume (same command)
+  ./shannon start URL=https://example.com REPO=my-repo \
+    WORKSPACE=q1-audit
+  ```
+</ParamField>
+
+### Development Options
+
+<ParamField path="PIPELINE_TESTING" type="boolean" default="false">
+  Enable fast testing mode with minimal prompts
+  
+  - Uses shorter prompts optimized for speed
+  - Reduces retry intervals (10s initial, 30s max)
+  - Fewer maximum retry attempts (5 vs 50)
+  - Ideal for development and CI testing
+  
+  ```bash
+  ./shannon start URL=https://example.com REPO=my-repo \
+    PIPELINE_TESTING=true
+  ```
+</ParamField>
+
+<ParamField path="REBUILD" type="boolean" default="false">
+  Force Docker rebuild without cache
+  
+  - Useful when code changes aren't being picked up
+  - Rebuilds worker container from scratch
+  - Takes longer but ensures latest code
+  
+  ```bash
+  ./shannon start URL=https://example.com REPO=my-repo \
+    REBUILD=true
+  ```
+</ParamField>
+
+### Multi-Model Support
+
+<ParamField path="ROUTER" type="boolean" default="false">
+  Enable multi-model routing via claude-code-router
+  
+  - Routes requests through [claude-code-router](https://github.com/musistudio/claude-code-router)
+  - Supports OpenAI, OpenRouter, and other providers
+  - Requires `OPENAI_API_KEY` or `OPENROUTER_API_KEY` in `.env`
+  - Automatically starts router container
+  - Sets `ANTHROPIC_BASE_URL=http://router:3456`
+  
+  ```bash
+  # Setup
+  echo "OPENAI_API_KEY=sk-..." >> .env
+  
+  # Run with router
+  ./shannon start URL=https://example.com REPO=my-repo \
+    ROUTER=true
+  ```
+  
+  See [Router Mode](/advanced/router-mode) for configuration details.
+</ParamField>
+
+## Authentication Methods
+
+Shannon supports multiple authentication providers:
+
+### Anthropic API (Default)
+
+```bash
+# .env file
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Claude OAuth Token
+
+```bash
+# .env file
+CLAUDE_CODE_OAUTH_TOKEN=oauth_...
+```
+
+### AWS Bedrock
+
+```bash
+# .env file
+CLAUDE_CODE_USE_BEDROCK=1
+AWS_REGION=us-east-1
+AWS_BEARER_TOKEN_BEDROCK=...
+ANTHROPIC_SMALL_MODEL=anthropic.claude-3-haiku-20240307-v1:0
+ANTHROPIC_MEDIUM_MODEL=anthropic.claude-3-5-sonnet-20241022-v2:0
+ANTHROPIC_LARGE_MODEL=anthropic.claude-3-5-sonnet-20241022-v2:0
+```
+
+See [AWS Bedrock Setup](/advanced/bedrock) for details.
+
+### Google Vertex AI
+
+```bash
+# .env file
+CLAUDE_CODE_USE_VERTEX=1
+CLOUD_ML_REGION=us-central1
+ANTHROPIC_VERTEX_PROJECT_ID=my-project-id
+GOOGLE_APPLICATION_CREDENTIALS=./credentials/gcp-sa-key.json
+ANTHROPIC_SMALL_MODEL=claude-3-haiku@20240307
+ANTHROPIC_MEDIUM_MODEL=claude-3-5-sonnet-v2@20241022
+ANTHROPIC_LARGE_MODEL=claude-3-5-sonnet-v2@20241022
+```
+
+See [Vertex AI Setup](/advanced/vertex-ai) for details.
+
+### Router with Alternative Providers
+
+```bash
+# .env file
+ROUTER=true
+OPENAI_API_KEY=sk-...
+# or
+OPENROUTER_API_KEY=sk-or-...
+```
+
+## Examples
+
+### Basic Pentest
+
+```bash
+# Start pentest with default settings
+./shannon start URL=https://app.example.com REPO=example-app
+
+# Output:
+# Starting Shannon containers...
+# Waiting for Temporal to be ready...
+# Temporal is ready!
+# Workflow started: app.example.com_shannon-1234567890
+# Monitor at http://localhost:8233
+```
+
+### Production Audit
+
+```bash
+# Named workspace with custom config and output
+./shannon start \
+  URL=https://app.example.com \
+  REPO=example-app \
+  WORKSPACE=q1-2024-audit \
+  CONFIG=./configs/production.yaml \
+  OUTPUT=./audit-reports
+```
+
+### Local Development
+
+```bash
+# Test local app with fast iteration
+./shannon start \
+  URL=http://host.docker.internal:3000 \
+  REPO=my-app \
+  PIPELINE_TESTING=true
+```
+
+### Resume Workflow
+
+```bash
+# Start initial workflow
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit-1
+
+# Later, resume from where it left off
+./shannon start URL=https://example.com REPO=my-repo WORKSPACE=audit-1
+
+# Output:
+# Resuming workspace: audit-1
+# Skipping completed agents: pre-recon, recon, injection-vuln
+# Continuing from: xss-vuln
+```
+
+### Multi-Model Routing
+
+```bash
+# Use OpenAI via router
+./shannon start \
+  URL=https://example.com \
+  REPO=my-repo \
+  ROUTER=true
+```
+
+## Workflow Phases
+
+Once started, Shannon executes a five-phase pipeline:
+
+1. **Pre-Reconnaissance** - External scans (nmap, subfinder, whatweb) + code analysis
+2. **Reconnaissance** - Attack surface mapping from initial findings
+3. **Vulnerability Analysis** - 5 parallel agents analyzing:
+   - SQL/NoSQL/Command injection
+   - Cross-site scripting (XSS)
+   - Authentication flaws
+   - Authorization bypasses
+   - Server-side request forgery (SSRF)
+4. **Exploitation** - Conditional parallel exploitation of confirmed vulnerabilities
+5. **Reporting** - Executive-level security assessment report
+
+See [Workflow Phases](/concepts/workflow-phases) for details.
+
+## Monitoring Progress
+
+### Real-time Logs
+
+```bash
+# Get workflow ID from start command output
+./shannon logs ID=app.example.com_shannon-1234567890
+```
+
+### Temporal Web UI
+
+Open http://localhost:8233 to:
+
+- View workflow execution history
+- Query progress via `getProgress`
+- Inspect activity logs and errors
+- See retry attempts and backoff
+- Monitor parallel agent execution
+
+### Workspace Status
+
+```bash
+./shannon workspaces
+```
+
+## Output Structure
+
+After completion, Shannon generates:
+
+```
+audit-logs/<workspace-id>/
+├── workflow.log              # Human-readable workflow log
+├── session.json              # Session metadata and state
+├── <agent-name>/
+│   ├── prompt.txt           # Agent prompt template
+│   ├── agent.log            # Agent execution log
+│   └── metrics.json         # Token usage and timing
+└── ...
+
+repos/<repo>/deliverables/
+├── pre_recon_deliverable.md
+├── recon_deliverable.md
+├── injection_analysis_deliverable.md
+├── xss_analysis_deliverable.md
+├── auth_analysis_deliverable.md
+├── authz_analysis_deliverable.md
+├── ssrf_analysis_deliverable.md
+├── *_exploitation_evidence.md  # If exploits succeed
+└── comprehensive_security_assessment_report.md
+```
+
+## Error Handling
+
+Shannon includes intelligent retry logic:
+
+- **Transient errors**: Automatic retry with exponential backoff
+- **Rate limits**: Extended backoff (up to 6 hours for subscriptions)
+- **Billing errors**: Patient retry (5min intervals, up to 30min)
+- **Non-retryable**: Authentication, permission, invalid requests
+
+See [Retry Strategies](/configuration/retry-strategies) for details.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="View Logs" icon="file-lines" href="/cli/logs">
+    Monitor workflow execution in real-time
+  </Card>
+  <Card title="Workspaces" icon="folder" href="/cli/workspaces">
+    List and manage workspaces
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/yaml-config">
+    Advanced YAML configuration options
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/guides/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>

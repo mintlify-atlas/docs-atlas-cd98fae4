@@ -1,0 +1,209 @@
+---
+title: Disclaimers
+description: Important usage guidelines and limitations for Shannon
+---
+
+## Important Usage Guidelines
+
+<Warning>
+Please review the following guidelines carefully before using Shannon (Lite). **As a user, you are responsible for your actions and assume all liability.**
+</Warning>
+
+## 1. Potential for Mutative Effects & Environment Selection
+
+<Danger>
+This is **not a passive scanner**. The exploitation agents are designed to **actively execute attacks** to confirm vulnerabilities. This process can have mutative effects on the target application and its data.
+</Danger>
+
+### Do NOT Run on Production
+
+**⚠️ DO NOT run Shannon on production environments.**
+
+- Shannon is intended **exclusively** for use on sandboxed, staging, or local development environments where data integrity is not a concern
+- Potential mutative effects include, but are not limited to:
+  - Creating new users and accounts
+  - Modifying or deleting existing data
+  - Compromising test accounts
+  - Triggering unintended side effects from injection attacks
+  - Altering database records
+  - Executing commands on the system
+  - Making configuration changes
+
+### Recommended Testing Environments
+
+<Tip>
+Use Shannon on:
+- **Local development environments**: Containers, Docker Compose, local VMs
+- **Dedicated staging environments**: Isolated from production data
+- **Sandboxed test environments**: Purpose-built for security testing
+- **Fresh database snapshots**: Restorable test data
+</Tip>
+
+## 2. Legal & Ethical Use
+
+<Warning>
+Shannon is designed for **legitimate security auditing purposes only**.
+</Warning>
+
+### Authorization Required
+
+**You must have explicit, written authorization** from the owner of the target system before running Shannon.
+
+- Unauthorized scanning and exploitation of systems you do not own is **illegal**
+- Can be prosecuted under laws such as the Computer Fraud and Abuse Act (CFAA) in the United States
+- Similar laws exist in most jurisdictions worldwide
+- **Keygraph is not responsible for any misuse of Shannon**
+
+### Defensive Security Tool Only
+
+Shannon is intended as a defensive security tool to:
+- Identify vulnerabilities in your own applications
+- Validate security controls before deployment
+- Support authorized penetration testing engagements
+- Enable continuous security testing in development pipelines
+
+## 3. LLM & Automation Caveats
+
+### Verification is Required
+
+<Info>
+While significant engineering has gone into our "proof-by-exploitation" methodology to eliminate false positives, the underlying LLMs can still generate hallucinated or weakly-supported content in the final report.
+</Info>
+
+**Human oversight is essential** to:
+- Validate the legitimacy of all reported findings
+- Confirm the severity assessments
+- Review exploit proof-of-concepts
+- Verify reproducibility of vulnerabilities
+- Assess business impact in context
+
+### Comprehensiveness Limitations
+
+The analysis in **Shannon Lite** may not be exhaustive due to:
+- Inherent limitations of LLM context windows
+- Time constraints on autonomous exploration
+- Focus on exploitable vulnerabilities only
+
+<Tip>
+For more comprehensive, graph-based analysis of your entire codebase, **Shannon Pro** leverages its advanced data flow analysis engine (inspired by the [LLMDFA paper](https://arxiv.org/abs/2402.10754)) to ensure deeper and more thorough coverage.
+</Tip>
+
+## 4. Scope of Analysis
+
+### Targeted Vulnerabilities
+
+The current version of Shannon Lite specifically targets the following classes of **exploitable** vulnerabilities:
+
+- ✅ Broken Authentication & Authorization
+- ✅ SQL Injection (SQLi)
+- ✅ Command Injection
+- ✅ Code Injection
+- ✅ Cross-Site Scripting (XSS)
+- ✅ Server-Side Request Forgery (SSRF)
+- ✅ Server-Side Template Injection (SSTI)
+
+### What Shannon Lite Does Not Cover
+
+<Warning>
+This list is **not exhaustive** of all potential security risks.
+</Warning>
+
+Shannon Lite's "proof-by-exploitation" model means it will **not report** on issues it cannot actively exploit, such as:
+
+- Vulnerable third-party libraries
+- Weak encryption algorithms
+- Insecure configurations
+- Code quality issues without exploitable impact
+- Compliance violations
+- Business logic flaws
+- Race conditions
+
+<Info>
+These types of deep static-analysis findings are a core focus of the advanced analysis engine in **Shannon Pro**.
+</Info>
+
+## 5. Cost & Performance
+
+### Time Requirements
+
+As of the current version, a full test run typically takes:
+- **1 to 1.5 hours** to complete for most applications
+- Time varies based on application complexity and size
+- Parallel processing helps reduce overall runtime
+
+### Cost Considerations
+
+Running the full test using Anthropic's Claude 4.5 Sonnet model may incur costs of approximately:
+- **~$50 USD** per complete pentest
+- Costs vary based on:
+  - Model pricing (subject to change)
+  - Application complexity
+  - Number of endpoints tested
+  - Length of exploitation attempts
+
+<Tip>
+**Cost Optimization Tips:**
+- Use configuration files to focus testing on specific areas
+- Set `max_concurrent_pipelines` to reduce burst API usage
+- Consider AWS Bedrock or Google Vertex AI for alternative pricing
+- Test smaller components before full application scans
+</Tip>
+
+### Subscription Plan Rate Limits
+
+If using Anthropic subscription plans:
+- Usage resets on a **rolling 5-hour window**
+- Default retry strategy may exhaust retries before reset
+- Add `retry_preset: subscription` to your config
+- Consider limiting `max_concurrent_pipelines` to avoid rate limits
+
+## 6. Windows Antivirus False Positives
+
+<Warning>
+Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` as malware.
+</Warning>
+
+### Why This Happens
+
+These are **false positives** caused by:
+- Exploit code in the reports
+- Proof-of-concept scripts
+- Sample payloads for vulnerability validation
+- Shell command examples
+
+### Recommended Solutions
+
+1. **Add an exclusion** for the Shannon directory in Windows Defender
+2. **Use Docker/WSL2** for better isolation (recommended)
+3. **Review flagged files** before adding exclusions
+4. **Keep reports in secure locations** with restricted access
+
+### WSL2 Setup (Recommended)
+
+For Windows users, running Shannon in WSL2 provides:
+- Better isolation from Windows Defender
+- Native Linux environment
+- Improved performance
+- Fewer permission issues
+
+See the [Installation guide](/getting-started/installation) for WSL2 setup instructions.
+
+## Summary
+
+<CardGroup cols={2}>
+  <Card title="Do" icon="check">
+    - Get explicit written authorization
+    - Use on non-production environments
+    - Verify all findings manually
+    - Monitor costs and API usage
+    - Review security best practices
+  </Card>
+  
+  <Card title="Don't" icon="xmark">
+    - Run on production systems
+    - Test unauthorized targets
+    - Trust findings without validation
+    - Ignore rate limits
+    - Use for malicious purposes
+  </Card>
+</CardGroup>

@@ -1,0 +1,372 @@
+---
+title: Architecture Overview
+description: System design and architectural patterns in Shannon
+---
+
+Shannon is a fully autonomous AI pentester built with a modular, service-oriented architecture. The system orchestrates multiple specialized AI agents through Temporal workflows, ensuring durability, observability, and parallel execution.
+
+## System Design Principles
+
+### Services Boundary Pattern
+
+Shannon maintains a clear separation between orchestration and business logic:
+
+- **Temporal Layer** (`src/temporal/`) - Workflow orchestration, activity wrappers, retry policies
+- **Services Layer** (`src/services/`) - Pure domain logic, no Temporal dependencies
+- **Activities Delegate to Services** - Activities are thin wrappers that handle Temporal concerns
+
+```typescript
+// Activity wrapper (src/temporal/activities.ts:105-155)
+async function runAgentActivity(
+  agentName: AgentName,
+  input: ActivityInput
+): Promise<AgentMetrics> {
+  // 1. Temporal concerns: heartbeat, error classification
+  const heartbeatInterval = setInterval(() => {
+    heartbeat({ agent: agentName, elapsedSeconds: elapsed });
+  }, HEARTBEAT_INTERVAL_MS);
+
+  try {
+    // 2. Business logic delegated to service
+    const container = getOrCreateContainer(workflowId, sessionMetadata);
+    const endResult = await container.agentExecution.executeOrThrow(
+      agentName,
+      { webUrl, repoPath, configPath },
+      auditSession,
+      logger
+    );
+
+    return { durationMs, costUsd: endResult.cost_usd, model: endResult.model };
+  } catch (error) {
+    // 3. Error classification for Temporal retry
+    const classified = classifyErrorForTemporal(error);
+    throw classified.retryable 
+      ? ApplicationFailure.create({ message, type: classified.type })
+      : ApplicationFailure.nonRetryable(message, classified.type);
+  }
+}
+```
+
+From `src/temporal/activities.ts:105-155`
+
+### Dependency Injection Container
+
+Services are wired through a DI container (`src/services/container.ts`) with explicit constructor injection:
+
+```typescript
+// Container lifecycle (src/services/container.ts:46-60)
+export class Container {
+  readonly agentExecution: AgentExecutionService;
+  readonly configLoader: ConfigLoaderService;
+  readonly exploitationChecker: ExploitationCheckerService;
+
+  constructor(deps: ContainerDependencies) {
+    this.sessionMetadata = deps.sessionMetadata;
+
+    // Wire services with explicit constructor injection
+    this.configLoader = new ConfigLoaderService();
+    this.exploitationChecker = new ExploitationCheckerService();
+    this.agentExecution = new AgentExecutionService(this.configLoader);
+  }
+}
+```
+
+From `src/services/container.ts:46-60`
+
+**Container Scoping:**
+- One container per workflow ID
+- Created on first agent execution
+- Removed when workflow completes
+- Services reused across all agents in a workflow
+
+**AuditSession Exclusion:**
+```typescript
+// AuditSession is NOT stored in container (src/services/container.ts:28-35)
+// Each agent execution receives its own AuditSession instance
+// because AuditSession uses instance state (currentAgentName) that
+// cannot be shared across parallel agents.
+
+const auditSession = new AuditSession(sessionMetadata);
+await auditSession.initialize(workflowId);
+await container.agentExecution.executeOrThrow(
+  agentName, input, auditSession, logger
+);
+```
+
+From `src/services/container.ts:28-35`
+
+## Module Boundaries
+
+### Core Modules
+
+```
+src/
+├── session-manager.ts      # Agent registry (AGENTS record)
+├── config-parser.ts        # YAML config + JSON Schema validation
+├── ai/
+│   └── claude-executor.ts  # Claude SDK integration with retry
+├── services/               # Business logic (Temporal-agnostic)
+│   ├── agent-execution.ts  # Agent lifecycle management
+│   ├── config-loader.ts    # Config loading service
+│   ├── container.ts        # DI container
+│   ├── error-handling.ts   # Error classification
+│   ├── git-manager.ts      # Git checkpoint/rollback
+│   └── prompt-manager.ts   # Prompt template loading
+├── temporal/               # Orchestration layer
+│   ├── workflows.ts        # Main workflow (pentestPipelineWorkflow)
+│   ├── activities.ts       # Activity wrappers
+│   ├── worker.ts           # Worker entry point
+│   └── client.ts           # CLI client
+├── audit/                  # Audit logging system
+│   ├── audit-session.ts    # Main facade
+│   ├── workflow-logger.ts  # Unified workflow logs
+│   ├── log-stream.ts       # Stream primitive
+│   └── metrics-tracker.ts  # session.json management
+├── types/                  # Consolidated types
+└── utils/                  # Shared utilities
+```
+
+### Agent Registry
+
+All agents are defined in a single source of truth (`src/session-manager.ts:14-108`):
+
+```typescript
+export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
+  'pre-recon': {
+    name: 'pre-recon',
+    displayName: 'Pre-recon agent',
+    prerequisites: [],
+    promptTemplate: 'pre-recon-code',
+    deliverableFilename: 'code_analysis_deliverable.md',
+    modelTier: 'large',
+  },
+  'recon': {
+    name: 'recon',
+    displayName: 'Recon agent',
+    prerequisites: ['pre-recon'],
+    promptTemplate: 'recon',
+    deliverableFilename: 'recon_deliverable.md',
+  },
+  'injection-vuln': {
+    name: 'injection-vuln',
+    displayName: 'Injection vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-injection',
+    deliverableFilename: 'injection_analysis_deliverable.md',
+  },
+  // ... 10 more agents
+});
+```
+
+From `src/session-manager.ts:14-108`
+
+## Configuration System
+
+Shannon uses YAML configuration with strict JSON Schema validation:
+
+### Config Loading Pipeline
+
+```typescript
+// 1. Parse YAML with FAILSAFE_SCHEMA (src/config-parser.ts:219-235)
+const config = yaml.load(configContent, {
+  schema: yaml.FAILSAFE_SCHEMA, // Only basic YAML types, no JS evaluation
+  json: false,
+  filename: configPath,
+});
+
+// 2. Validate against JSON Schema (src/config-parser.ts:289-300)
+const isValid = validateSchema(config);
+if (!isValid) {
+  const errors = validateSchema.errors || [];
+  const errorMessages = formatAjvErrors(errors);
+  throw new PentestError(
+    `Configuration validation failed:\n  - ${errorMessages.join('\n  - ')}`,
+    'config', false, { validationErrors: errorMessages },
+    ErrorCode.CONFIG_VALIDATION_FAILED
+  );
+}
+
+// 3. Security validation (src/config-parser.ts:315-382)
+performSecurityValidation(config);
+// - Checks for path traversal (../)
+// - Blocks javascript:, data:, file: URLs
+// - Validates domain/subdomain formats
+// - Checks for duplicate/conflicting rules
+```
+
+From `src/config-parser.ts:179-382`
+
+### Configuration Distribution
+
+Configs are transformed into a distributed format for agent consumption:
+
+```typescript
+export interface DistributedConfig {
+  avoid: Rule[];     // Paths/domains to avoid
+  focus: Rule[];     // Paths/domains to prioritize
+  authentication: Authentication | null;
+}
+
+// Rules support multiple scoping types
+interface Rule {
+  type: 'path' | 'subdomain' | 'domain' | 'method' | 'header' | 'parameter';
+  url_path: string;  // e.g., "/admin" or "staging.example.com"
+  description: string;
+}
+```
+
+## Error Handling Strategy
+
+### Result Type Pattern
+
+Services return explicit `Result<T, E>` types instead of throwing:
+
+```typescript
+// Service layer returns Result (src/services/agent-execution.ts:93-98)
+async execute(
+  agentName: AgentName,
+  input: AgentExecutionInput,
+  auditSession: AuditSession,
+  logger: ActivityLogger
+): Promise<Result<AgentEndResult, PentestError>> {
+  // Business logic...
+  if (error) {
+    return err(new PentestError(message, category, retryable, context, code));
+  }
+  return ok(result);
+}
+
+// Activities unwrap and classify for Temporal (src/temporal/activities.ts:133-144)
+const endResult = await container.agentExecution.executeOrThrow(
+  agentName, input, auditSession, logger
+);
+// executeOrThrow() converts Result<T,E> to thrown PentestError for Temporal
+```
+
+From `src/services/agent-execution.ts:93-98` and `src/temporal/activities.ts:133-144`
+
+### Error Classification
+
+Errors are classified into retryable vs non-retryable:
+
+```typescript
+// Error codes define retry behavior (src/types/errors.ts)
+export enum ErrorCode {
+  // Non-retryable
+  CONFIG_VALIDATION_FAILED = 'CONFIG_VALIDATION_FAILED',
+  AUTHENTICATION_ERROR = 'AUTHENTICATION_ERROR',
+  INVALID_REQUEST_ERROR = 'INVALID_REQUEST_ERROR',
+  
+  // Retryable
+  SPENDING_CAP_REACHED = 'SPENDING_CAP_REACHED',
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+  NETWORK_ERROR = 'NETWORK_ERROR',
+  AGENT_EXECUTION_FAILED = 'AGENT_EXECUTION_FAILED',
+}
+
+// Temporal retry configuration (src/temporal/workflows.ts:49-64)
+const PRODUCTION_RETRY = {
+  initialInterval: '5 minutes',
+  maximumInterval: '30 minutes',
+  backoffCoefficient: 2,
+  maximumAttempts: 50,
+  nonRetryableErrorTypes: [
+    'AuthenticationError',
+    'PermissionError',
+    'InvalidRequestError',
+    'ConfigurationError',
+  ],
+};
+```
+
+From `src/temporal/workflows.ts:49-64`
+
+## Parallel Execution Strategy
+
+The vulnerability and exploitation phases run 5 agents concurrently:
+
+```typescript
+// Pipelined execution (src/temporal/workflows.ts:389-428)
+async function runVulnExploitPipeline(
+  vulnType: VulnType,
+  runVulnAgent: () => Promise<AgentMetrics>,
+  runExploitAgent: () => Promise<AgentMetrics>
+): Promise<VulnExploitPipelineResult> {
+  // 1. Run vulnerability analysis
+  const vulnMetrics = await runVulnAgent();
+  
+  // 2. Check exploitation queue for actionable findings
+  const decision = await checkExploitationQueue(activityInput, vulnType);
+  
+  // 3. Conditionally run exploitation agent
+  let exploitMetrics = null;
+  if (decision.shouldExploit) {
+    exploitMetrics = await runExploitAgent();
+  }
+  
+  return { vulnType, vulnMetrics, exploitMetrics, exploitDecision };
+}
+
+// Concurrency control (src/temporal/workflows.ts:430-447)
+const maxConcurrent = input.pipelineConfig?.max_concurrent_pipelines ?? 5;
+const pipelineResults = await runWithConcurrencyLimit(
+  pipelineThunks, 
+  maxConcurrent
+);
+```
+
+From `src/temporal/workflows.ts:389-447`
+
+**Key Design Points:**
+- No synchronization barrier between vuln and exploit phases
+- Each pipeline (vuln→exploit) runs independently
+- Exploits start immediately when their vuln completes
+- Graceful degradation: failed pipelines don't block others
+
+## Progressive Analysis Flow
+
+Each phase builds on previous results through deliverable files:
+
+```
+1. Pre-Recon → code_analysis_deliverable.md
+   ↓
+2. Recon → recon_deliverable.md (reads pre-recon output)
+   ↓
+3. Vulnerability Analysis (5 parallel)
+   - injection_analysis_deliverable.md + injection_queue.json
+   - xss_analysis_deliverable.md + xss_queue.json
+   - auth_analysis_deliverable.md + auth_queue.json
+   - ssrf_analysis_deliverable.md + ssrf_queue.json
+   - authz_analysis_deliverable.md + authz_queue.json
+   ↓
+4. Exploitation (conditional, 5 parallel)
+   - injection_exploitation_evidence.md
+   - xss_exploitation_evidence.md
+   - ... (only if queue has vulnerabilities)
+   ↓
+5. Report → comprehensive_security_assessment_report.md
+```
+
+Vulnerability agents save structured queues that trigger exploitation:
+
+```json
+// *_queue.json format
+{
+  "vulnerabilities": [
+    {
+      "id": "INJ-001",
+      "severity": "high",
+      "location": "src/api/user.ts:45",
+      "description": "SQL injection in user search",
+      "evidence": "Unsanitized input passed to raw query"
+    }
+  ]
+}
+```
+
+## Related Documentation
+
+- [Core Modules](/development/core-modules) - Detailed module documentation
+- [Temporal Workflow](/development/temporal-workflow) - Workflow implementation
+- [MCP Integration](/development/mcp-integration) - MCP server architecture
+- [Audit System](/development/audit-system) - Logging and metrics tracking

@@ -1,0 +1,556 @@
+---
+title: MCP Integration
+description: Model Context Protocol server architecture, tool implementations, and browser isolation
+---
+
+Shannon uses the Model Context Protocol (MCP) to provide tools to AI agents through two types of servers: the shannon-helper server for deliverable management and TOTP generation, and Playwright MCP servers for browser automation.
+
+## MCP Architecture
+
+Each workflow creates its own set of MCP server instances to ensure isolation and prevent race conditions.
+
+### Server Lifecycle
+
+```typescript
+// src/ai/claude-executor.ts:59-114
+function buildMcpServers(
+  sourceDir: string,
+  agentName: string | null,
+  logger: ActivityLogger
+): Record<string, McpServer> {
+  // 1. Shannon-helper MCP (always present) - in-process server
+  const shannonHelperServer = createShannonHelperServer(sourceDir);
+  const mcpServers: Record<string, McpServer> = {
+    'shannon-helper': shannonHelperServer,
+  };
+
+  // 2. Playwright MCP (agent-specific) - stdio subprocess
+  if (agentName) {
+    const promptTemplate = AGENTS[agentName].promptTemplate;
+    const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate];
+
+    if (playwrightMcpName) {
+      logger.info(`Assigned ${agentName} -> ${playwrightMcpName}`);
+      mcpServers[playwrightMcpName] = createPlaywrightMcpConfig(playwrightMcpName);
+    }
+  }
+
+  return mcpServers;
+}
+```
+
+From `src/ai/claude-executor.ts:59-114`
+
+**Server Types:**
+- **In-Process**: `shannon-helper` (native TypeScript server)
+- **Stdio Subprocess**: Playwright MCP servers (`playwright-agent1` through `playwright-agent5`)
+
+## Shannon-Helper MCP Server
+
+The shannon-helper server provides deliverable management and TOTP generation tools.
+
+### Server Creation
+
+```typescript
+// mcp-server/src/index.ts:23-39
+export function createShannonHelperServer(targetDir: string): ReturnType<typeof createSdkMcpServer> {
+  // Create save_deliverable tool with targetDir in closure (no global variable)
+  const saveDeliverableTool = createSaveDeliverableTool(targetDir);
+
+  return createSdkMcpServer({
+    name: 'shannon-helper',
+    version: '1.0.0',
+    tools: [saveDeliverableTool, generateTotpTool],
+  });
+}
+```
+
+From `mcp-server/src/index.ts:23-39`
+
+**Factory Pattern Benefits:**
+- Each workflow gets its own server instance
+- `targetDir` captured in closure prevents race conditions
+- No global state shared between parallel workflows
+
+### save_deliverable Tool
+
+The primary tool for saving agent deliverables with automatic validation.
+
+#### Tool Schema
+
+```typescript
+// mcp-server/src/tools/save-deliverable.ts:30-34
+export const SaveDeliverableInputSchema = z.object({
+  deliverable_type: z.nativeEnum(DeliverableType)
+    .describe('Type of deliverable to save'),
+  content: z.string().min(1).optional()
+    .describe('File content (markdown for analysis/evidence, JSON for queues)'),
+  file_path: z.string().optional()
+    .describe('Path to file whose contents should be used. Use for large reports to avoid output token limits.'),
+});
+
+// Deliverable types
+export enum DeliverableType {
+  // Analysis deliverables (markdown)
+  CODE_ANALYSIS = 'code_analysis',
+  RECON = 'recon',
+  INJECTION_ANALYSIS = 'injection_analysis',
+  XSS_ANALYSIS = 'xss_analysis',
+  AUTH_ANALYSIS = 'auth_analysis',
+  SSRF_ANALYSIS = 'ssrf_analysis',
+  AUTHZ_ANALYSIS = 'authz_analysis',
+
+  // Exploitation evidence (markdown)
+  INJECTION_EXPLOITATION = 'injection_exploitation',
+  XSS_EXPLOITATION = 'xss_exploitation',
+  AUTH_EXPLOITATION = 'auth_exploitation',
+  SSRF_EXPLOITATION = 'ssrf_exploitation',
+  AUTHZ_EXPLOITATION = 'authz_exploitation',
+
+  // Vulnerability queues (JSON)
+  INJECTION_QUEUE = 'injection_queue',
+  XSS_QUEUE = 'xss_queue',
+  AUTH_QUEUE = 'auth_queue',
+  SSRF_QUEUE = 'ssrf_queue',
+  AUTHZ_QUEUE = 'authz_queue',
+
+  // Final report (markdown)
+  COMPREHENSIVE_REPORT = 'comprehensive_report',
+}
+```
+
+From `mcp-server/src/tools/save-deliverable.ts:30-34` and `mcp-server/src/types/deliverables.ts`
+
+#### Implementation
+
+```typescript
+// mcp-server/src/tools/save-deliverable.ts:98-140
+function createSaveDeliverableHandler(targetDir: string) {
+  return async function saveDeliverable(args: SaveDeliverableInput): Promise<ToolResult> {
+    try {
+      const { deliverable_type } = args;
+
+      // 1. Resolve content from inline string or file_path
+      const contentOrError = resolveContent(args, targetDir);
+      if (typeof contentOrError !== 'string') {
+        return contentOrError;  // Error result
+      }
+      const content = contentOrError;
+
+      // 2. Validate queue JSON structure if this is a queue deliverable
+      if (isQueueType(deliverable_type)) {
+        const queueValidation = validateQueueJson(content);
+        if (!queueValidation.valid) {
+          return createToolResult(createValidationError(
+            queueValidation.message ?? 'Invalid queue JSON',
+            true,  // Retryable - agent can fix the JSON
+            { deliverableType: deliverable_type, expectedFormat: '{"vulnerabilities": [...]}' },
+          ));
+        }
+      }
+
+      // 3. Save deliverable file
+      const filename = DELIVERABLE_FILENAMES[deliverable_type];
+      const filepath = saveDeliverableFile(targetDir, filename, content);
+
+      // 4. Return success response
+      const successResponse: SaveDeliverableResponse = {
+        status: 'success',
+        message: `Deliverable saved successfully: ${filename}`,
+        filepath,
+        deliverableType: deliverable_type,
+        validated: isQueueType(deliverable_type),
+      };
+
+      return createToolResult(successResponse);
+    } catch (error) {
+      return createToolResult(createGenericError(error, false));
+    }
+  };
+}
+```
+
+From `mcp-server/src/tools/save-deliverable.ts:98-140`
+
+#### Path Traversal Protection
+
+```typescript
+// mcp-server/src/tools/save-deliverable.ts:42-79
+function resolveContent(
+  args: SaveDeliverableInput,
+  targetDir: string,
+): string | ToolResult {
+  if (args.content) {
+    return args.content;
+  }
+
+  if (!args.file_path) {
+    return createToolResult(createValidationError(
+      'Either "content" or "file_path" must be provided',
+      true
+    ));
+  }
+
+  const resolvedPath = path.isAbsolute(args.file_path)
+    ? args.file_path
+    : path.resolve(targetDir, args.file_path);
+
+  // Security: Prevent path traversal outside targetDir
+  if (!isPathContained(targetDir, resolvedPath)) {
+    return createToolResult(createValidationError(
+      `Path "${args.file_path}" resolves outside allowed directory`,
+      false,  // Non-retryable - this is a security violation
+      { deliverableType: args.deliverable_type, allowedBase: targetDir },
+    ));
+  }
+
+  try {
+    return fs.readFileSync(resolvedPath, 'utf-8');
+  } catch (readError) {
+    return createToolResult(createValidationError(
+      `Failed to read file at ${resolvedPath}: ${readError.message}`,
+      true,  // Retryable - file might exist later
+    ));
+  }
+}
+
+function isPathContained(basePath: string, targetPath: string): boolean {
+  const resolvedBase = path.resolve(basePath);
+  const resolvedTarget = path.resolve(targetPath);
+  return resolvedTarget === resolvedBase || resolvedTarget.startsWith(resolvedBase + path.sep);
+}
+```
+
+From `mcp-server/src/tools/save-deliverable.ts:42-90`
+
+#### Queue Validation
+
+```typescript
+// mcp-server/src/validation/queue-validator.ts
+export function validateQueueJson(content: string): QueueValidationResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    return {
+      valid: false,
+      message: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  // Must be an object with vulnerabilities array
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      valid: false,
+      message: 'Queue must be an object with "vulnerabilities" array',
+    };
+  }
+
+  const queue = parsed as Record<string, unknown>;
+  
+  if (!('vulnerabilities' in queue)) {
+    return {
+      valid: false,
+      message: 'Missing required field: "vulnerabilities"',
+    };
+  }
+
+  if (!Array.isArray(queue.vulnerabilities)) {
+    return {
+      valid: false,
+      message: '"vulnerabilities" must be an array',
+    };
+  }
+
+  return { valid: true };
+}
+```
+
+**Expected Queue Format:**
+```json
+{
+  "vulnerabilities": [
+    {
+      "id": "INJ-001",
+      "severity": "high",
+      "location": "src/api/user.ts:45",
+      "description": "SQL injection in user search",
+      "evidence": "Unsanitized input passed to raw query"
+    }
+  ]
+}
+```
+
+### generate_totp Tool
+
+Generates time-based one-time passwords for MFA/2FA authentication.
+
+```typescript
+// mcp-server/src/tools/generate-totp.ts
+import { tool } from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
+import { authenticator } from 'otplib';
+import { createToolResult } from '../types/tool-responses.js';
+
+const GenerateTotpInputSchema = z.object({
+  secret: z.string().min(1).describe('TOTP secret key (base32 encoded)'),
+});
+
+export const generateTotpTool = tool(
+  'generate_totp',
+  'Generate a time-based one-time password (TOTP) for 2FA/MFA authentication',
+  GenerateTotpInputSchema.shape,
+  async (args: z.infer<typeof GenerateTotpInputSchema>) => {
+    try {
+      // Remove spaces and convert to uppercase (standard base32 format)
+      const normalizedSecret = args.secret.replace(/\s/g, '').toUpperCase();
+
+      // Generate TOTP code (valid for 30 seconds)
+      const token = authenticator.generate(normalizedSecret);
+
+      return createToolResult({
+        status: 'success',
+        token,
+        message: `Generated TOTP code (valid for 30 seconds)`,
+      });
+    } catch (error) {
+      return createToolResult({
+        status: 'error',
+        message: `Failed to generate TOTP: ${error instanceof Error ? error.message : String(error)}`,
+        retryable: false,
+      });
+    }
+  }
+);
+```
+
+**Usage in Config:**
+```yaml
+authentication:
+  login_type: form
+  login_url: https://app.example.com/login
+  credentials:
+    username: test@example.com
+    password: testpass123
+    totp_secret: JBSWY3DPEHPK3PXP  # Base32-encoded secret
+  success_condition:
+    type: url_contains
+    value: /dashboard
+```
+
+## Playwright MCP Servers
+
+Shannon uses 5 isolated Playwright MCP server instances for browser automation during parallel agent execution.
+
+### Agent-to-MCP Mapping
+
+```typescript
+// src/session-manager.ts:154-181
+export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze({
+  // Phase 1: Pre-reconnaissance
+  'pre-recon-code': 'playwright-agent1',
+
+  // Phase 2: Reconnaissance
+  'recon': 'playwright-agent2',
+
+  // Phase 3: Vulnerability Analysis (5 parallel agents)
+  'vuln-injection': 'playwright-agent1',
+  'vuln-xss': 'playwright-agent2',
+  'vuln-auth': 'playwright-agent3',
+  'vuln-ssrf': 'playwright-agent4',
+  'vuln-authz': 'playwright-agent5',
+
+  // Phase 4: Exploitation (5 parallel agents - same as vuln counterparts)
+  'exploit-injection': 'playwright-agent1',
+  'exploit-xss': 'playwright-agent2',
+  'exploit-auth': 'playwright-agent3',
+  'exploit-ssrf': 'playwright-agent4',
+  'exploit-authz': 'playwright-agent5',
+
+  // Phase 5: Reporting
+  'report-executive': 'playwright-agent3',
+});
+```
+
+From `src/session-manager.ts:154-181`
+
+**Isolation Benefits:**
+- Each vuln/exploit pair shares the same Playwright instance
+- Browser state (cookies, localStorage) persists between vuln→exploit
+- Parallel agents don't interfere with each other's browser sessions
+- User data directories isolated per agent: `/tmp/playwright-agent1`, etc.
+
+### Playwright MCP Configuration
+
+```typescript
+// src/ai/claude-executor.ts:76-108
+const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate];
+
+if (playwrightMcpName) {
+  const userDataDir = `/tmp/${playwrightMcpName}`;
+  const isDocker = process.env.SHANNON_DOCKER === 'true';
+
+  const mcpArgs: string[] = [
+    '@playwright/mcp@latest',
+    '--isolated',
+    '--user-data-dir', userDataDir,
+  ];
+
+  if (isDocker) {
+    mcpArgs.push('--executable-path', '/usr/bin/chromium-browser');
+    mcpArgs.push('--browser', 'chromium');
+  }
+
+  const envVars: Record<string, string> = {
+    ...process.env,
+    PLAYWRIGHT_HEADLESS: 'true',
+    ...(isDocker && { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }),
+  };
+
+  mcpServers[playwrightMcpName] = {
+    type: 'stdio',
+    command: 'npx',
+    args: mcpArgs,
+    env: envVars,
+  };
+}
+```
+
+From `src/ai/claude-executor.ts:76-108`
+
+**Configuration Options:**
+- `--isolated`: Fresh browser context per agent execution
+- `--user-data-dir`: Persistent storage for cookies/localStorage
+- `--executable-path`: Docker uses system Chromium, local uses downloaded browser
+- `--browser chromium`: Explicit browser selection for Docker
+- `PLAYWRIGHT_HEADLESS=true`: Runs without GUI
+- `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`: Docker has pre-installed browser
+
+### Browser Isolation Strategy
+
+```
+Parallel Execution (5 vuln agents):
+
+injection-vuln  → playwright-agent1 → /tmp/playwright-agent1/
+                  (Chromium process 1)
+
+xss-vuln        → playwright-agent2 → /tmp/playwright-agent2/
+                  (Chromium process 2)
+
+auth-vuln       → playwright-agent3 → /tmp/playwright-agent3/
+                  (Chromium process 3)
+
+ssrf-vuln       → playwright-agent4 → /tmp/playwright-agent4/
+                  (Chromium process 4)
+
+authz-vuln      → playwright-agent5 → /tmp/playwright-agent5/
+                  (Chromium process 5)
+
+↓ (Each completes independently)
+
+Parallel Execution (5 exploit agents):
+
+injection-exploit → playwright-agent1 → /tmp/playwright-agent1/
+                    (REUSES same browser profile)
+
+xss-exploit       → playwright-agent2 → /tmp/playwright-agent2/
+                    (REUSES same browser profile)
+
+... etc.
+```
+
+**Key Design Points:**
+- Vuln and exploit agents for the same type share a Playwright instance
+- Browser state persists between vuln→exploit (logged-in sessions, etc.)
+- Separate processes prevent interference between different vulnerability types
+- User data directories ensure cookie/storage isolation
+
+### Playwright Tool Examples
+
+Playwright MCP provides browser automation tools:
+
+```typescript
+// Navigate to URL
+await mcp__playwright__browser_navigate({ url: 'https://app.example.com/login' });
+
+// Type into input field
+await mcp__playwright__browser_type({
+  selector: 'input[name="username"]',
+  text: 'test@example.com'
+});
+
+// Click button
+await mcp__playwright__browser_click({
+  selector: 'button[type="submit"]'
+});
+
+// Take screenshot
+await mcp__playwright__browser_screenshot({
+  name: 'login-page.png'
+});
+
+// Get page content
+const html = await mcp__playwright__browser_get_content();
+```
+
+## Tool Response Format
+
+All MCP tools return structured responses:
+
+```typescript
+// mcp-server/src/types/tool-responses.ts
+export interface ToolResult {
+  content: [
+    {
+      type: 'text';
+      text: string;  // JSON-encoded response
+    }
+  ];
+  isError?: boolean;
+}
+
+// Success response
+export interface SaveDeliverableResponse {
+  status: 'success';
+  message: string;
+  filepath: string;
+  deliverableType: string;
+  validated: boolean;
+}
+
+// Error response
+export interface ErrorResponse {
+  status: 'error';
+  message: string;
+  retryable: boolean;
+  context?: Record<string, unknown>;
+}
+```
+
+**Usage in Agent Prompts:**
+```
+To save your analysis, use the save_deliverable tool:
+
+```json
+{
+  "deliverable_type": "injection_analysis",
+  "content": "# SQL Injection Analysis\n\n..."
+}
+```
+
+For large reports, write to a file first then reference it:
+
+```json
+{
+  "deliverable_type": "comprehensive_report",
+  "file_path": "deliverables/draft_report.md"
+}
+```
+```
+
+## Related Documentation
+
+- [Architecture Overview](/development/architecture-overview) - System design patterns
+- [Core Modules](/development/core-modules) - Service layer details
+- [Temporal Workflow](/development/temporal-workflow) - Orchestration layer
+- [Audit System](/development/audit-system) - Logging and metrics

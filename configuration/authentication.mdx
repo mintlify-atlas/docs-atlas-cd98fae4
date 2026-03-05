@@ -1,0 +1,271 @@
+---
+title: Authentication Configuration
+description: Configure login, credentials, TOTP/2FA, and authentication flow
+---
+
+Shannon supports multiple authentication methods to enable testing of protected applications. The authentication section of your configuration file defines how Shannon should log in to your application.
+
+## Login Types
+
+Shannon supports four authentication methods:
+
+### Form-Based Authentication
+
+Traditional username/password login forms:
+
+```yaml
+authentication:
+  login_type: form
+  login_url: "https://example.com/login"
+  credentials:
+    username: "testuser"
+    password: "testpassword"
+  login_flow:
+    - "Type $username into the email field"
+    - "Type $password into the password field"
+    - "Click the 'Sign In' button"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+```
+
+### SSO Authentication
+
+Single Sign-On (e.g., "Sign in with Google"):
+
+```yaml
+authentication:
+  login_type: sso
+  login_url: "https://example.com/login"
+  credentials:
+    username: "testuser@example.com"
+    password: "testpassword"
+  login_flow:
+    - "Click the 'Sign in with Google' button"
+    - "Type $username into the Google email field"
+    - "Click 'Next'"
+    - "Type $password into the Google password field"
+    - "Click 'Sign In'"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+```
+
+### API Authentication
+
+API key or token-based authentication:
+
+```yaml
+authentication:
+  login_type: api
+  login_url: "https://api.example.com/auth/token"
+  credentials:
+    username: "api_key_id"
+    password: "api_secret_key"
+  success_condition:
+    type: text_contains
+    value: "access_token"
+```
+
+### Basic Authentication
+
+HTTP Basic Auth:
+
+```yaml
+authentication:
+  login_type: basic
+  login_url: "https://example.com/"
+  credentials:
+    username: "testuser"
+    password: "testpassword"
+  success_condition:
+    type: url_contains
+    value: "/"
+```
+
+## Credentials
+
+The `credentials` section defines authentication information:
+
+```yaml
+credentials:
+  username: "test@example.com"  # Required: 1-255 characters
+  password: "testpassword"       # Required: 1-255 characters
+  totp_secret: "JBSWY3DPEHPK3PXP"  # Optional: Base32-encoded TOTP secret
+```
+
+### Field Reference
+
+<ParamField path="username" type="string" required>
+  Username, email, or API key (1-255 characters)
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  Password or API secret (1-255 characters)
+</ParamField>
+
+<ParamField path="totp_secret" type="string">
+  Base32-encoded TOTP secret for two-factor authentication. Case insensitive.
+</ParamField>
+
+## Two-Factor Authentication (2FA/TOTP)
+
+Shannon can automatically generate TOTP codes for 2FA during login. Simply add your TOTP secret to the credentials section:
+
+```yaml
+authentication:
+  login_type: form
+  login_url: "https://example.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "testpassword"
+    totp_secret: "JBSWY3DPEHPK3PXP"
+  login_flow:
+    - "Type $username into the email field"
+    - "Type $password into the password field"
+    - "Click the 'Sign In' button"
+    - "Enter $totp in the verification code field"
+    - "Click 'Verify'"
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+```
+
+### Getting Your TOTP Secret
+
+When setting up 2FA, your application typically shows a QR code. Most 2FA setup screens also provide a text-based secret key (the TOTP secret). This is what you need to add to your configuration.
+
+The TOTP secret is a Base32-encoded string, typically looking like:
+- `JBSWY3DPEHPK3PXP`
+- `LB2E2RX7XFHSTGCK`
+- `A4GRFHVVRBGY7UIQ`
+
+<Warning>
+TOTP secrets are sensitive credentials. Store your configuration files securely and do not commit them to version control.
+</Warning>
+
+## Login Flow Instructions
+
+The `login_flow` section provides natural language instructions for the login process. Shannon's AI agent follows these steps using browser automation.
+
+```yaml
+login_flow:
+  - "Type $username into the email field"
+  - "Type $password into the password field"
+  - "Click the 'Sign In' button"
+  - "Enter $totp in the verification code field"
+  - "Click 'Verify'"
+```
+
+### Variable Substitution
+
+Use these variables in your login flow:
+
+- `$username` - Replaced with the username from credentials
+- `$password` - Replaced with the password from credentials
+- `$totp` - Replaced with a generated TOTP code (if totp_secret is provided)
+
+### Guidelines for Login Flow
+
+- Use clear, specific instructions ("email field" not "input field")
+- Reference UI elements by their visible text ("'Sign In' button")
+- Keep steps sequential and atomic
+- Maximum 20 steps allowed
+- Each step must be 1-500 characters
+
+## Success Conditions
+
+Defines how Shannon determines successful authentication:
+
+```yaml
+success_condition:
+  type: url_contains
+  value: "/dashboard"
+```
+
+### Condition Types
+
+<ParamField path="type" type="enum" required>
+  The type of condition to check:
+  
+  - `url_contains` - URL contains the specified value
+  - `url_equals_exactly` - URL exactly matches the value
+  - `element_present` - Page contains a specific element
+  - `text_contains` - Page content contains the text
+</ParamField>
+
+<ParamField path="value" type="string" required>
+  The value to check for (1-500 characters)
+</ParamField>
+
+### Examples
+
+**URL-based conditions:**
+```yaml
+success_condition:
+  type: url_contains
+  value: "/dashboard"
+```
+
+```yaml
+success_condition:
+  type: url_equals_exactly
+  value: "https://example.com/app/home"
+```
+
+**Element-based condition:**
+```yaml
+success_condition:
+  type: element_present
+  value: "[data-testid='user-menu']"
+```
+
+**Text-based condition:**
+```yaml
+success_condition:
+  type: text_contains
+  value: "Welcome back"
+```
+
+## Complete Example
+
+Here's a complete authentication configuration with 2FA:
+
+```yaml
+authentication:
+  login_type: form
+  login_url: "https://example.com/login"
+  credentials:
+    username: "testuser"
+    password: "testpassword"
+    totp_secret: "JBSWY3DPEHPK3PXP"
+  
+  login_flow:
+    - "Type $username into the email field"
+    - "Type $password into the password field"
+    - "Click the 'Sign In' button"
+    - "Enter $totp in the verification code field"
+    - "Click 'Verify'"
+  
+  success_condition:
+    type: url_contains
+    value: "/dashboard"
+```
+
+## Security Validation
+
+Shannon performs security validation on all authentication fields to prevent:
+
+- Path traversal attacks (`../`)
+- HTML/XML injection (`<>` characters)
+- JavaScript URLs (`javascript:`)
+- Data URLs (`data:`)
+- File URLs (`file:`)
+
+If validation fails, Shannon will display a detailed error message indicating the problematic field and pattern.
+
+## Next Steps
+
+<Card title="YAML Config Reference" icon="file-code" href="/configuration/yaml-config">
+  See the complete configuration reference including rules and pipeline settings
+</Card>
